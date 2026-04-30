@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Studio Router</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #0a0a0f; }
+    select, select option {
+      background-color: #1a1a2e !important;
+      color: #fff !important;
+    }
+    select option:checked {
+      background-color: #2E75B6 !important;
+    }
+  </style>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+// ─── DATA: Default devices for Ignacio's studio ───
+const DEFAULT_DEVICES = [
+  { id: "hapax", name: "Hapax", type: "sequencer", color: "#E8B931", x: 60, y: 40, ports: [
+    { id: "h-outa", name: "Out A", dir: "out", kind: "midi" },
+    { id: "h-outb", name: "Out B", dir: "out", kind: "midi" },
+    { id: "h-outc", name: "Out C", dir: "out", kind: "midi" },
+    { id: "h-usb", name: "USB", dir: "both", kind: "midi" },
+    { id: "h-cv1", name: "CV 1", dir: "out", kind: "cv" },
+    { id: "h-cv2", name: "CV 2", dir: "out", kind: "cv" },
+    { id: "h-cv3", name: "CV 3", dir: "out", kind: "cv" },
+    { id: "h-cv4", name: "CV 4", dir: "out", kind: "cv" },
+    { id: "h-gate1", name: "Gate 1", dir: "out", kind: "cv" },
+    { id: "h-gate2", name: "Gate 2", dir: "out", kind: "cv" },
+  ]},
+  { id: "mrcc", name: "MRCC", type: "midi-router", color: "#6C5CE7", x: 380, y: 40, ports: [
+    { id: "m-din1", name: "DIN In 1", dir: "in", kind: "midi" },
+    { id: "m-din2", name: "DIN In 2", dir: "in", kind: "midi" },
+    { id: "m-din3", name: "DIN In 3", dir: "in", kind: "midi" },
+    { id: "m-din4", name: "DIN In 4", dir: "in", kind: "midi" },
+    { id: "m-din5", name: "DIN In 5", dir: "in", kind: "midi" },
+    { id: "m-din6", name: "DIN In 6", dir: "in", kind: "midi" },
+    { id: "m-do1", name: "DIN Out 1", dir: "out", kind: "midi" },
+    { id: "m-do2", name: "DIN Out 2", dir: "out", kind: "midi" },
+    { id: "m-do3", name: "DIN Out 3", dir: "out", kind: "midi" },
+    { id: "m-do4", name: "DIN Out 4", dir: "out", kind: "midi" },
+    { id: "m-do5", name: "DIN Out 5", dir: "out", kind: "midi" },
+    { id: "m-do6", name: "DIN Out 6", dir: "out", kind: "midi" },
+    { id: "m-do7", name: "DIN Out 7", dir: "out", kind: "midi" },
+    { id: "m-do8", name: "DIN Out 8", dir: "out", kind: "midi" },
+    { id: "m-do9", name: "DIN Out 9", dir: "out", kind: "midi" },
+    { id: "m-usba", name: "USB-A", dir: "both", kind: "midi" },
+    { id: "m-usbb", name: "USB-B", dir: "both", kind: "midi" },
+    { id: "m-usbc", name: "USB-C", dir: "both", kind: "midi" },
+    { id: "m-usbd", name: "USB-D", dir: "both", kind: "midi" },
+    { id: "m-usbdev", name: "USB Dev", dir: "both", kind: "midi" },
+  ]},
+  { id: "octatrack", name: "Octatrack", type: "sampler", color: "#2D3436", x: 60, y: 320, ports: [
+    { id: "ot-ml", name: "Main L", dir: "out", kind: "audio" },
+    { id: "ot-mr", name: "Main R", dir: "out", kind: "audio" },
+    { id: "ot-cl", name: "Cue L", dir: "out", kind: "audio" },
+    { id: "ot-cr", name: "Cue R", dir: "out", kind: "audio" },
+    { id: "ot-mo", name: "MIDI Out", dir: "out", kind: "midi" },
+    { id: "ot-mi", name: "MIDI In", dir: "in", kind: "midi" },
+  ]},
+  { id: "rytm", name: "Analog Rytm", type: "drum-machine", color: "#636E72", x: 60, y: 530, ports: [
+    { id: "ar-ml", name: "Main L", dir: "out", kind: "audio" },
+    { id: "ar-mr", name: "Main R", dir: "out", kind: "audio" },
+    { id: "ar-mo", name: "MIDI Out", dir: "out", kind: "midi" },
+    { id: "ar-mi", name: "MIDI In", dir: "in", kind: "midi" },
+  ]},
+  { id: "hydra", name: "Hydrasynth", type: "synth", color: "#00B894", x: 60, y: 710, ports: [
+    { id: "hy-al", name: "Audio L", dir: "out", kind: "audio" },
+    { id: "hy-ar", name: "Audio R", dir: "out", kind: "audio" },
+    { id: "hy-mi", name: "MIDI In", dir: "in", kind: "midi" },
+    { id: "hy-mo", name: "MIDI Out", dir: "out", kind: "midi" },
+    { id: "hy-usb", name: "USB", dir: "both", kind: "midi" },
+  ]},
+  { id: "push3", name: "Push 3", type: "controller", color: "#FDCB6E", x: 60, y: 900, ports: [
+    { id: "p3-al", name: "Audio L", dir: "out", kind: "audio" },
+    { id: "p3-ar", name: "Audio R", dir: "out", kind: "audio" },
+    { id: "p3-mo", name: "MIDI Out", dir: "out", kind: "midi" },
+    { id: "p3-mi", name: "MIDI In", dir: "in", kind: "midi" },
+  ]},
+  { id: "pro2", name: "DSI Pro 2", type: "synth", color: "#0984E3", x: 380, y: 530, ports: [
+    { id: "p2-al", name: "Audio L", dir: "out", kind: "audio" },
+    { id: "p2-ar", name: "Audio R", dir: "out", kind: "audio" },
+    { id: "p2-mi", name: "MIDI In", dir: "in", kind: "midi" },
+    { id: "p2-mo", name: "MIDI Out", dir: "out", kind: "midi" },
+  ]},
+  { id: "td3", name: "TD-3", type: "synth", color: "#E17055", x: 380, y: 710, ports: [
+    { id: "td-ao", name: "Audio Out", dir: "out", kind: "audio" },
+    { id: "td-mi", name: "MIDI In", dir: "in", kind: "midi" },
+  ]},
+  { id: "subphatty", name: "Sub Phatty", type: "synth", color: "#D63031", x: 380, y: 860, ports: [
+    { id: "sp-ao", name: "Audio Out", dir: "out", kind: "audio" },
+    { id: "sp-mi", name: "MIDI In", dir: "in", kind: "midi" },
+    { id: "sp-mo", name: "MIDI Out", dir: "out", kind: "midi" },
+  ]},
+  { id: "fx16ii", name: "FX16ii Mixer", type: "mixer", color: "#A29BFE", x: 700, y: 320, ports: [
+    { id: "fx-c1", name: "Ch 1", dir: "in", kind: "audio" },
+    { id: "fx-c2", name: "Ch 2", dir: "in", kind: "audio" },
+    { id: "fx-c3", name: "Ch 3", dir: "in", kind: "audio" },
+    { id: "fx-c4", name: "Ch 4", dir: "in", kind: "audio" },
+    { id: "fx-c5", name: "Ch 5", dir: "in", kind: "audio" },
+    { id: "fx-c6", name: "Ch 6", dir: "in", kind: "audio" },
+    { id: "fx-c7", name: "Ch 7", dir: "in", kind: "audio" },
+    { id: "fx-c8", name: "Ch 8", dir: "in", kind: "audio" },
+    { id: "fx-c9", name: "Ch 9", dir: "in", kind: "audio" },
+    { id: "fx-c10", name: "Ch 10", dir: "in", kind: "audio" },
+    { id: "fx-c11", name: "Ch 11", dir: "in", kind: "audio" },
+    { id: "fx-c12", name: "Ch 12", dir: "in", kind: "audio" },
+    { id: "fx-c13", name: "Ch 13", dir: "in", kind: "audio" },
+    { id: "fx-c14", name: "Ch 14", dir: "in", kind: "audio" },
+    { id: "fx-c15", name: "Ch 15", dir: "in", kind: "audio" },
+    { id: "fx-c16", name: "Ch 16", dir: "in", kind: "audio" },
+    { id: "fx-do1", name: "D.Out 1", dir: "out", kind: "audio" },
+    { id: "fx-do2", name: "D.Out 2", dir: "out", kind: "audio" },
+    { id: "fx-do3", name: "D.Out 3", dir: "out", kind: "audio" },
+    { id: "fx-do4", name: "D.Out 4", dir: "out", kind: "audio" },
+    { id: "fx-do5", name: "D.Out 5", dir: "out", kind: "audio" },
+    { id: "fx-do6", name: "D.Out 6", dir: "out", kind: "audio" },
+    { id: "fx-do7", name: "D.Out 7", dir: "out", kind: "audio" },
+    { id: "fx-do8", name: "D.Out 8", dir: "out", kind: "audio" },
+    { id: "fx-do9", name: "D.Out 9", dir: "out", kind: "audio" },
+    { id: "fx-do10", name: "D.Out 10", dir: "out", kind: "audio" },
+    { id: "fx-do11", name: "D.Out 11", dir: "out", kind: "audio" },
+    { id: "fx-do12", name: "D.Out 12", dir: "out", kind: "audio" },
+    { id: "fx-do13", name: "D.Out 13", dir: "out", kind: "audio" },
+    { id: "fx-do14", name: "D.Out 14", dir: "out", kind: "audio" },
+    { id: "fx-do15", name: "D.Out 15", dir: "out", kind: "audio" },
+    { id: "fx-do16", name: "D.Out 16", dir: "out", kind: "audio" },
+    { id: "fx-mix", name: "Mix Out", dir: "out", kind: "audio" },
+    { id: "fx-aux2", name: "Aux 2", dir: "out", kind: "audio" },
+    { id: "fx-aux3", name: "Aux 3", dir: "out", kind: "audio" },
+    { id: "fx-sr1l", name: "Ret 1 L", dir: "in", kind: "audio" },
+    { id: "fx-sr1r", name: "Ret 1 R", dir: "in", kind: "audio" },
+    { id: "fx-sr2l", name: "Ret 2 L", dir: "in", kind: "audio" },
+    { id: "fx-sr2r", name: "Ret 2 R", dir: "in", kind: "audio" },
+  ]},
+  { id: "motu", name: "MOTU 828es", type: "interface", color: "#00CEC9", x: 1060, y: 40, ports: [
+    { id: "mt-m1", name: "Mic 1", dir: "in", kind: "audio" },
+    { id: "mt-m2", name: "Mic 2", dir: "in", kind: "audio" },
+    { id: "mt-a1", name: "An In 1", dir: "in", kind: "audio" },
+    { id: "mt-a2", name: "An In 2", dir: "in", kind: "audio" },
+    { id: "mt-a3", name: "An In 3", dir: "in", kind: "audio" },
+    { id: "mt-a4", name: "An In 4", dir: "in", kind: "audio" },
+    { id: "mt-a5", name: "An In 5", dir: "in", kind: "audio" },
+    { id: "mt-a6", name: "An In 6", dir: "in", kind: "audio" },
+    { id: "mt-a7", name: "An In 7", dir: "in", kind: "audio" },
+    { id: "mt-a8", name: "An In 8", dir: "in", kind: "audio" },
+    { id: "mt-ml", name: "Main L", dir: "out", kind: "audio" },
+    { id: "mt-mr", name: "Main R", dir: "out", kind: "audio" },
+    { id: "mt-o1", name: "Out 1", dir: "out", kind: "audio" },
+    { id: "mt-o2", name: "Out 2", dir: "out", kind: "audio" },
+    { id: "mt-o3", name: "Out 3", dir: "out", kind: "audio" },
+    { id: "mt-o4", name: "Out 4", dir: "out", kind: "audio" },
+    { id: "mt-o5", name: "Out 5", dir: "out", kind: "audio" },
+    { id: "mt-o6", name: "Out 6", dir: "out", kind: "audio" },
+    { id: "mt-o7", name: "Out 7", dir: "out", kind: "audio" },
+    { id: "mt-o8", name: "Out 8", dir: "out", kind: "audio" },
+    { id: "mt-adatai", name: "ADAT A In", dir: "in", kind: "digital" },
+    { id: "mt-adatbi", name: "ADAT B In", dir: "in", kind: "digital" },
+    { id: "mt-adatbo", name: "ADAT B Out", dir: "out", kind: "digital" },
+    { id: "mt-usb", name: "USB/TB", dir: "both", kind: "digital" },
+  ]},
+  { id: "octopre", name: "OctoPre", type: "preamp", color: "#E84393", x: 1060, y: 500, ports: [
+    { id: "op-1", name: "In 1", dir: "in", kind: "audio" },
+    { id: "op-2", name: "In 2", dir: "in", kind: "audio" },
+    { id: "op-3", name: "In 3", dir: "in", kind: "audio" },
+    { id: "op-4", name: "In 4", dir: "in", kind: "audio" },
+    { id: "op-5", name: "In 5", dir: "in", kind: "audio" },
+    { id: "op-6", name: "In 6", dir: "in", kind: "audio" },
+    { id: "op-7", name: "In 7", dir: "in", kind: "audio" },
+    { id: "op-8", name: "In 8", dir: "in", kind: "audio" },
+    { id: "op-adat", name: "ADAT Out", dir: "out", kind: "digital" },
+  ]},
+  { id: "optxv2", name: "Optx V2", type: "converter", color: "#74B9FF", x: 1060, y: 780, ports: [
+    { id: "ox-ai", name: "ADAT In", dir: "in", kind: "digital" },
+    { id: "ox-ao", name: "ADAT Out", dir: "out", kind: "digital" },
+    { id: "ox-cv1", name: "CV/Audio 1", dir: "both", kind: "cv" },
+    { id: "ox-cv2", name: "CV/Audio 2", dir: "both", kind: "cv" },
+    { id: "ox-cv3", name: "CV/Audio 3", dir: "both", kind: "cv" },
+    { id: "ox-cv4", name: "CV/Audio 4", dir: "both", kind: "cv" },
+  ]},
+  { id: "h9", name: "Eventide H9", type: "effect", color: "#FD79A8", x: 700, y: 710, ports: [
+    { id: "h9-il", name: "In L", dir: "in", kind: "audio" },
+    { id: "h9-ir", name: "In R", dir: "in", kind: "audio" },
+    { id: "h9-ol", name: "Out L", dir: "out", kind: "audio" },
+    { id: "h9-or", name: "Out R", dir: "out", kind: "audio" },
+    { id: "h9-mi", name: "MIDI In", dir: "in", kind: "midi" },
+  ]},
+  { id: "heat", name: "Analog Heat", type: "effect", color: "#FF7675", x: 700, y: 900, ports: [
+    { id: "ah-il", name: "In L", dir: "in", kind: "audio" },
+    { id: "ah-ir", name: "In R", dir: "in", kind: "audio" },
+    { id: "ah-ol", name: "Out L", dir: "out", kind: "audio" },
+    { id: "ah-or", name: "Out R", dir: "out", kind: "audio" },
+    { id: "ah-mi", name: "MIDI In", dir: "in", kind: "midi" },
+    { id: "ah-usb", name: "USB/OB", dir: "both", kind: "digital" },
+  ]},
+  { id: "rk004", name: "RK-004", type: "midi-hub", color: "#B2BEC3", x: 380, y: 320, ports: [
+    { id: "rk-i1", name: "In 1", dir: "in", kind: "midi" },
+    { id: "rk-i2", name: "In 2", dir: "in", kind: "midi" },
+    { id: "rk-i3", name: "In 3", dir: "in", kind: "midi" },
+    { id: "rk-out", name: "Out", dir: "out", kind: "midi" },
+  ]},
+  { id: "modular", name: "Eurorack", type: "modular", color: "#55EFC4", x: 380, y: 1060, ports: [
+    { id: "eu-al", name: "Audio L", dir: "out", kind: "audio" },
+    { id: "eu-ar", name: "Audio R", dir: "out", kind: "audio" },
+    { id: "eu-cv1", name: "CV In 1", dir: "in", kind: "cv" },
+    { id: "eu-cv2", name: "CV In 2", dir: "in", kind: "cv" },
+    { id: "eu-gate1", name: "Gate In 1", dir: "in", kind: "cv" },
+    { id: "eu-gate2", name: "Gate In 2", dir: "in", kind: "cv" },
+  ]},
+  { id: "mutbrain", name: "Mutant Brain", type: "converter", color: "#81ECEC", x: 700, y: 1060, ports: [
+    { id: "mb-mi", name: "MIDI In", dir: "in", kind: "midi" },
+    { id: "mb-cv1", name: "CV 1", dir: "out", kind: "cv" },
+    { id: "mb-cv2", name: "CV 2", dir: "out", kind: "cv" },
+    { id: "mb-g1", name: "Gate 1", dir: "out", kind: "cv" },
+    { id: "mb-g2", name: "Gate 2", dir: "out", kind: "cv" },
+  ]},
+  { id: "usamo", name: "USAMO", type: "clock", color: "#FFEAA7", x: 1060, y: 1060, ports: [
+    { id: "us-ai", name: "Audio In", dir: "in", kind: "audio" },
+    { id: "us-mo", name: "MIDI Out", dir: "out", kind: "midi" },
+  ]},
+  { id: "ipad", name: "iPad", type: "tablet", color: "#DFE6E9", x: 380, y: 1240, ports: [
+    { id: "ip-al", name: "Audio L", dir: "out", kind: "audio" },
+    { id: "ip-ar", name: "Audio R", dir: "out", kind: "audio" },
+  ]},
+  { id: "spatch", name: "S-Patch Plus", type: "patchbay", color: "#B2BEC3", x: 700, y: 40, ports: [
+    { id: "sp-t1", name: "Top 1", dir: "in", kind: "audio" },
+    { id: "sp-t2", name: "Top 2", dir: "in", kind: "audio" },
+    { id: "sp-t3", name: "Top 3", dir: "in", kind: "audio" },
+    { id: "sp-t4", name: "Top 4", dir: "in", kind: "audio" },
+    { id: "sp-t5", name: "Top 5", dir: "in", kind: "audio" },
+    { id: "sp-t6", name: "Top 6", dir: "in", kind: "audio" },
+    { id: "sp-t7", name: "Top 7", dir: "in", kind: "audio" },
+    { id: "sp-t8", name: "Top 8", dir: "in", kind: "audio" },
+    { id: "sp-t9", name: "Top 9", dir: "in", kind: "audio" },
+    { id: "sp-t10", name: "Top 10", dir: "in", kind: "audio" },
+    { id: "sp-t11", name: "Top 11", dir: "in", kind: "audio" },
+    { id: "sp-t12", name: "Top 12", dir: "in", kind: "audio" },
+    { id: "sp-t13", name: "Top 13", dir: "in", kind: "audio" },
+    { id: "sp-t14", name: "Top 14", dir: "in", kind: "audio" },
+    { id: "sp-t15", name: "Top 15", dir: "in", kind: "audio" },
+    { id: "sp-t16", name: "Top 16", dir: "in", kind: "audio" },
+    { id: "sp-t17", name: "Top 17", dir: "in", kind: "audio" },
+    { id: "sp-t18", name: "Top 18", dir: "in", kind: "audio" },
+    { id: "sp-t19", name: "Top 19", dir: "in", kind: "audio" },
+    { id: "sp-t20", name: "Top 20", dir: "in", kind: "audio" },
+    { id: "sp-t21", name: "Top 21", dir: "in", kind: "audio" },
+    { id: "sp-t22", name: "Top 22", dir: "in", kind: "audio" },
+    { id: "sp-t23", name: "Top 23", dir: "in", kind: "audio" },
+    { id: "sp-t24", name: "Top 24", dir: "in", kind: "audio" },
+    { id: "sp-b1", name: "Bot 1", dir: "out", kind: "audio" },
+    { id: "sp-b2", name: "Bot 2", dir: "out", kind: "audio" },
+    { id: "sp-b3", name: "Bot 3", dir: "out", kind: "audio" },
+    { id: "sp-b4", name: "Bot 4", dir: "out", kind: "audio" },
+    { id: "sp-b5", name: "Bot 5", dir: "out", kind: "audio" },
+    { id: "sp-b6", name: "Bot 6", dir: "out", kind: "audio" },
+    { id: "sp-b7", name: "Bot 7", dir: "out", kind: "audio" },
+    { id: "sp-b8", name: "Bot 8", dir: "out", kind: "audio" },
+    { id: "sp-b9", name: "Bot 9", dir: "out", kind: "audio" },
+    { id: "sp-b10", name: "Bot 10", dir: "out", kind: "audio" },
+    { id: "sp-b11", name: "Bot 11", dir: "out", kind: "audio" },
+    { id: "sp-b12", name: "Bot 12", dir: "out", kind: "audio" },
+    { id: "sp-b13", name: "Bot 13", dir: "out", kind: "audio" },
+    { id: "sp-b14", name: "Bot 14", dir: "out", kind: "audio" },
+    { id: "sp-b15", name: "Bot 15", dir: "out", kind: "audio" },
+    { id: "sp-b16", name: "Bot 16", dir: "out", kind: "audio" },
+    { id: "sp-b17", name: "Bot 17", dir: "out", kind: "audio" },
+    { id: "sp-b18", name: "Bot 18", dir: "out", kind: "audio" },
+    { id: "sp-b19", name: "Bot 19", dir: "out", kind: "audio" },
+    { id: "sp-b20", name: "Bot 20", dir: "out", kind: "audio" },
+    { id: "sp-b21", name: "Bot 21", dir: "out", kind: "audio" },
+    { id: "sp-b22", name: "Bot 22", dir: "out", kind: "audio" },
+    { id: "sp-b23", name: "Bot 23", dir: "out", kind: "audio" },
+    { id: "sp-b24", name: "Bot 24", dir: "out", kind: "audio" },
+  ]},
+  { id: "mondesk", name: "Monitor Escritorio", type: "monitor", color: "#DFE6E9", x: 1440, y: 40, ports: [
+    { id: "md-l", name: "In L", dir: "in", kind: "audio" },
+    { id: "md-r", name: "In R", dir: "in", kind: "audio" },
+  ]},
+  { id: "monjam", name: "Monitor Jam", type: "monitor", color: "#DFE6E9", x: 1440, y: 170, ports: [
+    { id: "mj-l", name: "In L", dir: "in", kind: "audio" },
+    { id: "mj-r", name: "In R", dir: "in", kind: "audio" },
+  ]},
+  { id: "sub", name: "Subwoofer", type: "monitor", color: "#636E72", x: 1440, y: 300, ports: [
+    { id: "sw-in", name: "In", dir: "in", kind: "audio" },
+  ]},
+  { id: "sv100", name: "Shure SV100", type: "mic", color: "#B2BEC3", x: 1440, y: 400, ports: [
+    { id: "sv-out", name: "XLR Out", dir: "out", kind: "audio" },
+  ]},
+  { id: "misslink", name: "Missing Link", type: "clock", color: "#FFEAA7", x: 1060, y: 1240, ports: [
+    { id: "ml-mi", name: "MIDI In", dir: "in", kind: "midi" },
+    { id: "ml-link", name: "Link Out", dir: "out", kind: "digital" },
+  ]},
+  { id: "twister", name: "MF Twister", type: "controller", color: "#A29BFE", x: 700, y: 1240, ports: [
+    { id: "tw-usb", name: "USB", dir: "both", kind: "midi" },
+  ]},
+  { id: "fcone", name: "DoreMidi FC", type: "controller", color: "#FDCB6E", x: 60, y: 1100, ports: [
+    { id: "fc-usb", name: "USB", dir: "both", kind: "midi" },
+  ]},
+  { id: "metamod", name: "MetaModule", type: "converter", color: "#55EFC4", x: 60, y: 1240, ports: [
+    { id: "mm-usb", name: "USB-C", dir: "in", kind: "midi" },
+    { id: "mm-cv1", name: "CV Out 1", dir: "out", kind: "cv" },
+    { id: "mm-cv2", name: "CV Out 2", dir: "out", kind: "cv" },
+    { id: "mm-ao", name: "Audio Out", dir: "out", kind: "audio" },
+  ]},
+  { id: "rat", name: "ProCo RAT", type: "effect", color: "#E17055", x: 1440, y: 520, ports: [
+    { id: "rat-in", name: "In", dir: "in", kind: "audio" },
+    { id: "rat-out", name: "Out", dir: "out", kind: "audio" },
+  ]},
+  { id: "pc", name: "PC / Ableton", type: "interface", color: "#0984E3", x: 1440, y: 660, ports: [
+    { id: "pc-usb", name: "USB/TB", dir: "both", kind: "digital" },
+    { id: "pc-link", name: "Link WiFi", dir: "both", kind: "digital" },
+  ]},
+];
+
+const KIND_COLORS = {
+  audio: { line: "#00CEC9", glow: "rgba(0,206,201,0.4)", label: "Audio" },
+  midi: { line: "#E8B931", glow: "rgba(232,185,49,0.4)", label: "MIDI" },
+  cv: { line: "#E84393", glow: "rgba(232,67,147,0.4)", label: "CV" },
+  digital: { line: "#74B9FF", glow: "rgba(116,185,255,0.4)", label: "Digital" },
+};
+
+const TYPE_ICONS = {
+  sequencer: "\u2399", synth: "\u223F", sampler: "\u25A6", "drum-machine": "\u25C9",
+  controller: "\u2B1A", mixer: "\u2261", interface: "\u25C8", preamp: "\u25B3",
+  converter: "\u21C4", effect: "\u2606", "midi-router": "\u2194", "midi-hub": "\u2B82",
+  modular: "\u25A4", clock: "\u23F1", tablet: "\u25FB", patchbay: "\u2503",
+  monitor: "\u25E8", mic: "\u2388",
+};
+
+const NODE_W = 260;
+const PORT_H = 22;
+const PORT_PAD = 6;
+const HEADER_H = 42;
+
+function getPortPos(device, port, devices) {
+  const d = devices.find(dd => dd.id === device);
+  if (!d) return { x: 0, y: 0 };
+  const pIdx = d.ports.findIndex(p => p.id === port);
+  const inPorts = d.ports.filter(p => p.dir === "in" || p.dir === "both");
+  const outPorts = d.ports.filter(p => p.dir === "out" || p.dir === "both");
+  const p = d.ports[pIdx];
+  if (!p) return { x: d.x, y: d.y };
+  const isOut = p.dir === "out";
+  const isBoth = p.dir === "both";
+  let list, side;
+  if (isOut) { list = outPorts; side = "right"; }
+  else if (isBoth) {
+    const inIdx = inPorts.indexOf(p);
+    const outIdx = outPorts.indexOf(p);
+    list = outPorts; side = "right";
+  }
+  else { list = inPorts; side = "left"; }
+  const idx = list.indexOf(p);
+  const x = side === "right" ? d.x + NODE_W : d.x;
+  const y = d.y + HEADER_H + PORT_PAD + idx * (PORT_H + PORT_PAD) + PORT_H / 2;
+  return { x, y };
+}
+
+function StudioRouter() {
+  const [devices, setDevices] = useState([]);
+  const [connections, setConnections] = useState([]);
+  const [dragging, setDragging] = useState(null);
+  const [connecting, setConnecting] = useState(null);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [selected, setSelected] = useState(null);
+  const [selectedConn, setSelectedConn] = useState(null);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(0.65);
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newDevice, setNewDevice] = useState({ name: "", type: "synth", color: "#00B894" });
+  const [newPorts, setNewPorts] = useState([]);
+  const [connLabel, setConnLabel] = useState("");
+  const [editingConn, setEditingConn] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [mode, setMode] = useState("all");
+  const [stickyNotes, setStickyNotes] = useState([]);
+  const [selectedNote, setSelectedNote] = useState(null);
+  const [draggingNote, setDraggingNote] = useState(null);
+  const [editingDeviceNote, setEditingDeviceNote] = useState(null);
+  const [editingPorts, setEditingPorts] = useState(null);
+  const svgRef = useRef(null);
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+    (async () => {
+      try {
+        const r = { value: localStorage.getItem("studio-router-data") };
+        if (r && r.value) {
+          const d = JSON.parse(r.value);
+          setDevices(d.devices || DEFAULT_DEVICES);
+          setConnections(d.connections || []);
+          setStickyNotes(d.stickyNotes || []);
+          if (d.pan) setPan(d.pan);
+          if (d.zoom) setZoom(d.zoom);
+          return;
+        }
+      } catch(e) {}
+      setDevices(DEFAULT_DEVICES);
+    })();
+  }, []);
+
+  const save = useCallback((devs, conns, p, z, notes) => {
+    try {
+      localStorage.setItem("studio-router-data", JSON.stringify({
+        devices: devs, connections: conns, stickyNotes: notes, pan: p, zoom: z
+      }));
+    } catch(e) {}
+  }, []);
+
+  useEffect(() => {
+    if (loaded.current && devices.length > 0) save(devices, connections, pan, zoom, stickyNotes);
+  }, [devices, connections, pan, zoom, stickyNotes, save]);
+
+  const screenToWorld = (sx, sy) => ({
+    x: (sx - pan.x) / zoom,
+    y: (sy - pan.y) / zoom,
+  });
+
+  const handleWheel = (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.92 : 1.08;
+    const nz = Math.max(0.15, Math.min(2.5, zoom * delta));
+    const rect = svgRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    setPan(p => ({
+      x: mx - (mx - p.x) * (nz / zoom),
+      y: my - (my - p.y) * (nz / zoom),
+    }));
+    setZoom(nz);
+  };
+
+  const handlePointerDown = (e) => {
+    if (e.target === svgRef.current || e.target.classList.contains("bg-grid")) {
+      if (connecting) {
+        setConnecting(null);
+        return;
+      }
+      setIsPanning(true);
+      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+      setSelected(null);
+      setSelectedConn(null);
+      setEditingConn(null);
+    }
+  };
+
+  const handlePointerMove = (e) => {
+    const rect = svgRef.current.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    setMousePos(screenToWorld(sx, sy));
+
+    if (isPanning && panStart) {
+      setPan({ x: e.clientX - panStart.x, y: e.clientY - panStart.y });
+      return;
+    }
+    if (draggingNote) {
+      const w = screenToWorld(sx, sy);
+      setStickyNotes(ns => ns.map(n =>
+        n.id === draggingNote.id ? { ...n, x: w.x - draggingNote.ox, y: w.y - draggingNote.oy } : n
+      ));
+      return;
+    }
+    if (dragging) {
+      const w = screenToWorld(sx, sy);
+      setDevices(ds => ds.map(d =>
+        d.id === dragging.id ? { ...d, x: w.x - dragging.ox, y: w.y - dragging.oy } : d
+      ));
+    }
+  };
+
+  const handlePointerUp = () => {
+    setDragging(null);
+    setDraggingNote(null);
+    setIsPanning(false);
+    setPanStart(null);
+  };
+
+  const startDrag = (dev, e) => {
+    e.stopPropagation();
+    const rect = svgRef.current.getBoundingClientRect();
+    const w = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+    setDragging({ id: dev.id, ox: w.x - dev.x, oy: w.y - dev.y });
+    setSelected(dev.id);
+    setSelectedConn(null);
+    setEditingConn(null);
+  };
+
+  const startConnect = (devId, portId, e) => {
+    e.stopPropagation();
+    if (connecting) {
+      if (connecting.devId !== devId) {
+        const srcPort = devices.find(d => d.id === connecting.devId)?.ports.find(p => p.id === connecting.portId);
+        const tgtPort = devices.find(d => d.id === devId)?.ports.find(p => p.id === portId);
+        if (srcPort && tgtPort) {
+          const newConn = {
+            id: `c-${Date.now()}`,
+            from: { device: connecting.devId, port: connecting.portId },
+            to: { device: devId, port: portId },
+            kind: srcPort.kind,
+            label: "",
+            mode: "all",
+          };
+          setConnections(cs => [...cs, newConn]);
+        }
+      }
+      setConnecting(null);
+    } else {
+      setConnecting({ devId, portId });
+    }
+  };
+
+  const deleteDevice = (id) => {
+    setDevices(ds => ds.filter(d => d.id !== id));
+    setConnections(cs => cs.filter(c => c.from.device !== id && c.to.device !== id));
+    setSelected(null);
+  };
+
+  const deleteConnection = (id) => {
+    setConnections(cs => cs.filter(c => c.id !== id));
+    setSelectedConn(null);
+  };
+
+  const addDevice = () => {
+    if (!newDevice.name.trim()) return;
+    const id = `dev-${Date.now()}`;
+    const center = screenToWorld(400, 300);
+    setDevices(ds => [...ds, {
+      id, name: newDevice.name.trim(), type: newDevice.type,
+      color: newDevice.color, x: center.x, y: center.y,
+      ports: newPorts.map((p, i) => ({ ...p, id: `${id}-p${i}` })),
+    }]);
+    setNewDevice({ name: "", type: "synth", color: "#00B894" });
+    setNewPorts([]);
+    setShowAdd(false);
+  };
+
+  const addPort = () => {
+    setNewPorts(ps => [...ps, { name: `Port ${ps.length + 1}`, dir: "out", kind: "audio" }]);
+  };
+
+  const filteredConns = connections.filter(c => {
+    if (filter !== "all" && c.kind !== filter) return false;
+    if (mode !== "all" && c.mode !== "all" && c.mode !== mode) return false;
+    return true;
+  });
+
+  const nodeHeight = (dev) => {
+    const inP = dev.ports.filter(p => p.dir === "in" || p.dir === "both").length;
+    const outP = dev.ports.filter(p => p.dir === "out" || p.dir === "both").length;
+    const base = HEADER_H + Math.max(inP, outP) * (PORT_H + PORT_PAD) + PORT_PAD * 2;
+    return dev.notes ? base + 28 : base;
+  };
+
+  const resetView = () => {
+    setPan({ x: 60, y: 60 });
+    setZoom(0.55);
+  };
+
+  const [toastMsg, setToastMsg] = useState("");
+  const showToast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(""), 3000); };
+
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportData, setExportData] = useState("");
+  const [savedSnapshots, setSavedSnapshots] = useState([]);
+  const [showSnapshots, setShowSnapshots] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = { value: localStorage.getItem("studio-router-snapshots") };
+        if (r && r.value) setSavedSnapshots(JSON.parse(r.value));
+      } catch(e) {}
+    })();
+  }, []);
+
+  const saveSnapshot = (name) => {
+    const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
+    const snap = { id: "snap-" + Date.now(), name: name || timestamp, date: timestamp, data: { version: 2, devices, connections, stickyNotes } };
+    const updated = [...savedSnapshots, snap];
+    setSavedSnapshots(updated);
+    try { localStorage.setItem("studio-router-snapshots", JSON.stringify(updated)); } catch(e) {}
+    showToast("Snapshot guardado: " + snap.name);
+  };
+
+  const loadSnapshot = (snap) => {
+    setDevices(snap.data.devices || []);
+    setConnections(snap.data.connections || []);
+    setStickyNotes(snap.data.stickyNotes || []);
+    setPan({ x: 60, y: 60 });
+    setZoom(0.45);
+    setShowSnapshots(false);
+    showToast("Cargado: " + snap.name);
+  };
+
+  const deleteSnapshot = (id) => {
+    const updated = savedSnapshots.filter(s => s.id !== id);
+    setSavedSnapshots(updated);
+    try { localStorage.setItem("studio-router-snapshots", JSON.stringify(updated)); } catch(e) {}
+  };
+
+  const exportJSON = () => {
+    if (!devices || devices.length === 0) { showToast("No hay dispositivos para exportar"); return; }
+    const data = JSON.stringify({ version: 2, exportDate: new Date().toISOString(), devices, connections, stickyNotes }, null, 2);
+    setExportData(data);
+    setShowExportModal(true);
+  };
+
+  const copyToClipboard = async () => {
+    try { await navigator.clipboard.writeText(exportData); showToast("JSON copiado al portapapeles"); }
+    catch(e) { showToast("No se pudo copiar - selecciona el texto manualmente"); }
+  };
+
+  const fileInputRef = useRef(null);
+
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importText, setImportText] = useState("");
+
+  const importFromText = () => {
+    try {
+      const d = JSON.parse(importText);
+      if (d.devices && Array.isArray(d.devices) && d.devices.length > 0) {
+        setDevices(d.devices);
+        setConnections(d.connections || []);
+        setStickyNotes(d.stickyNotes || []);
+        setPan({ x: 60, y: 60 });
+        setZoom(0.45);
+        setShowImportModal(false);
+        setImportText("");
+        showToast("Importado: " + d.devices.length + " dispositivos, " + (d.connections?.length || 0) + " conexiones");
+      } else {
+        showToast("El JSON no contiene dispositivos validos");
+      }
+    } catch(err) {
+      showToast("Error: JSON invalido - verifica que copiaste todo el texto");
+    }
+  };
+
+  const importJSON = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.endsWith(".json")) {
+      showToast("Solo archivos .json");
+      e.target.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const d = JSON.parse(ev.target.result);
+        if (d.devices && Array.isArray(d.devices) && d.devices.length > 0) {
+          setDevices(d.devices);
+          setConnections(d.connections || []);
+          setStickyNotes(d.stickyNotes || []);
+          setPan({ x: 60, y: 60 });
+          setZoom(0.45);
+          showToast("Importado: " + d.devices.length + " dispositivos, " + (d.connections?.length || 0) + " conexiones");
+        } else {
+          showToast("El archivo no contiene dispositivos validos");
+        }
+      } catch(err) {
+        showToast("Error: JSON invalido");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const resetToDefaults = () => {
+    setDevices(DEFAULT_DEVICES);
+    setConnections([]);
+    setPan({ x: 60, y: 60 });
+    setZoom(0.45);
+    setStickyNotes([]);
+    try { localStorage.removeItem("studio-router-data"); } catch(e) {}
+    showToast("Reset completo - " + DEFAULT_DEVICES.length + " dispositivos cargados");
+  };
+
+  const addStickyNote = () => {
+    const center = screenToWorld(400, 300);
+    const note = { id: "note-" + Date.now(), x: center.x, y: center.y, text: "Nueva nota...", color: "#FFEAA7", w: 200 };
+    setStickyNotes(ns => [...ns, note]);
+    setSelectedNote(note.id);
+  };
+
+  const deleteStickyNote = (id) => {
+    setStickyNotes(ns => ns.filter(n => n.id !== id));
+    setSelectedNote(null);
+  };
+
+  return (
+    <div style={{ width: "100%", height: "100vh", background: "#0a0a0f", overflow: "hidden", fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace", position: "relative" }}>
+
+      {/* Toolbar */}
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, background: "linear-gradient(180deg, rgba(15,15,25,0.97) 0%, rgba(15,15,25,0.85) 100%)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", letterSpacing: 2, marginRight: 8 }}>
+          <span style={{ color: "#00CEC9" }}>\u25C8</span> STUDIO ROUTER
+        </div>
+        <div style={{ height: 20, width: 1, background: "rgba(255,255,255,0.1)" }} />
+        {/* Filter buttons */}
+        {["all", "audio", "midi", "cv", "digital"].map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            style={{ padding: "4px 12px", fontSize: 11, border: "1px solid", borderRadius: 4, cursor: "pointer", textTransform: "uppercase", letterSpacing: 1, fontFamily: "inherit", transition: "all 0.2s",
+              background: filter === f ? (f === "all" ? "rgba(255,255,255,0.12)" : KIND_COLORS[f]?.line + "22") : "transparent",
+              borderColor: filter === f ? (f === "all" ? "rgba(255,255,255,0.3)" : KIND_COLORS[f]?.line) : "rgba(255,255,255,0.08)",
+              color: filter === f ? (f === "all" ? "#fff" : KIND_COLORS[f]?.line) : "rgba(255,255,255,0.4)",
+            }}>
+            {f === "all" ? "Todos" : KIND_COLORS[f]?.label || f}
+          </button>
+        ))}
+        <div style={{ height: 20, width: 1, background: "rgba(255,255,255,0.1)" }} />
+        {/* Mode filter */}
+        {["all", "daw", "jam"].map(m => (
+          <button key={m} onClick={() => setMode(m)}
+            style={{ padding: "4px 12px", fontSize: 11, border: "1px solid", borderRadius: 4, cursor: "pointer", textTransform: "uppercase", letterSpacing: 1, fontFamily: "inherit", transition: "all 0.2s",
+              background: mode === m ? "rgba(232,185,49,0.15)" : "transparent",
+              borderColor: mode === m ? "#E8B931" : "rgba(255,255,255,0.08)",
+              color: mode === m ? "#E8B931" : "rgba(255,255,255,0.4)",
+            }}>
+            {m === "all" ? "Ambos" : m === "daw" ? "DAW" : "Jam"}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setShowAdd(true)} style={{ padding: "5px 14px", fontSize: 11, background: "rgba(0,206,201,0.15)", border: "1px solid #00CEC9", borderRadius: 4, color: "#00CEC9", cursor: "pointer", fontFamily: "inherit", letterSpacing: 1 }}>
+          + DISPOSITIVO
+        </button>
+        <button onClick={addStickyNote} style={{ padding: "5px 14px", fontSize: 11, background: "rgba(255,234,167,0.12)", border: "1px solid rgba(255,234,167,0.4)", borderRadius: 4, color: "#FFEAA7", cursor: "pointer", fontFamily: "inherit", letterSpacing: 1 }}>
+          + NOTA
+        </button>
+        <button onClick={resetView} style={{ padding: "5px 14px", fontSize: 11, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontFamily: "inherit" }}>
+          \u21BA Vista
+        </button>
+        <button onClick={() => saveSnapshot()} style={{ padding: "5px 14px", fontSize: 11, background: "rgba(0,206,201,0.08)", border: "1px solid rgba(0,206,201,0.3)", borderRadius: 4, color: "rgba(0,206,201,0.7)", cursor: "pointer", fontFamily: "inherit" }}>
+          Guardar
+        </button>
+        <button onClick={() => setShowSnapshots(true)} style={{ padding: "5px 14px", fontSize: 11, background: "rgba(116,185,255,0.08)", border: "1px solid rgba(116,185,255,0.3)", borderRadius: 4, color: "rgba(116,185,255,0.7)", cursor: "pointer", fontFamily: "inherit" }}>
+          Versiones {savedSnapshots.length > 0 ? "(" + savedSnapshots.length + ")" : ""}
+        </button>
+        <div style={{ height: 20, width: 1, background: "rgba(255,255,255,0.06)" }} />
+        <button onClick={exportJSON} style={{ padding: "5px 14px", fontSize: 11, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, color: "rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: "inherit" }}>
+          Copiar JSON
+        </button>
+        <button onClick={() => setShowImportModal(true)} style={{ padding: "5px 14px", fontSize: 11, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, color: "rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: "inherit" }}>
+          Pegar JSON
+        </button>
+        <button onClick={resetToDefaults} style={{ padding: "5px 14px", fontSize: 11, background: "rgba(255,80,80,0.08)", border: "1px solid rgba(255,80,80,0.2)", borderRadius: 4, color: "rgba(255,80,80,0.6)", cursor: "pointer", fontFamily: "inherit" }}>
+          Reset
+        </button>
+        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>{Math.round(zoom * 100)}%</span>
+      </div>
+
+      {/* SVG Canvas */}
+      <svg ref={svgRef} style={{ width: "100%", height: "100%", cursor: isPanning ? "grabbing" : connecting ? "crosshair" : "default" }}
+        onWheel={handleWheel} onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}
+        onContextMenu={(e) => { e.preventDefault(); setConnecting(null); }}
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Escape") { setConnecting(null); setSelectedConn(null); setSelected(null); } }}>
+        <defs>
+          <pattern id="grid" x="0" y="0" width={40 * zoom} height={40 * zoom} patternUnits="userSpaceOnUse">
+            <circle cx={pan.x % (40 * zoom)} cy={pan.y % (40 * zoom)} r="0.8" fill="rgba(255,255,255,0.04)" />
+          </pattern>
+          {Object.entries(KIND_COLORS).map(([k, v]) => (
+            <filter id={`glow-${k}`} key={k}>
+              <feGaussianBlur stdDeviation="4" result="blur" />
+              <feFlood floodColor={v.line} floodOpacity="0.6" />
+              <feComposite in2="blur" operator="in" />
+              <feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+          ))}
+        </defs>
+        <rect className="bg-grid" width="100%" height="100%" fill="url(#grid)" />
+
+        <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
+          {/* Connections */}
+          {filteredConns.map(conn => {
+            const from = getPortPos(conn.from.device, conn.from.port, devices);
+            const to = getPortPos(conn.to.device, conn.to.port, devices);
+            const kc = KIND_COLORS[conn.kind] || KIND_COLORS.audio;
+            const dx = Math.abs(to.x - from.x) * 0.5;
+            const path = `M${from.x},${from.y} C${from.x + dx},${from.y} ${to.x - dx},${to.y} ${to.x},${to.y}`;
+            const isSel = selectedConn === conn.id;
+            const midX = (from.x + to.x) / 2;
+            const midY = (from.y + to.y) / 2;
+            const isDashed = conn.mode === "jam" ? "6,4" : conn.mode === "daw" ? "2,4" : "none";
+            return (
+              <g key={conn.id}>
+                <path d={path} fill="none" stroke={kc.line} strokeWidth={isSel ? 3.5 : 2}
+                  strokeDasharray={isDashed} strokeOpacity={isSel ? 1 : 0.65}
+                  filter={isSel ? `url(#glow-${conn.kind})` : undefined}
+                  style={{ cursor: "pointer", transition: "stroke-opacity 0.2s" }}
+                  onClick={(e) => { e.stopPropagation(); setSelectedConn(conn.id); setSelected(null); }}
+                />
+                {conn.label && (
+                  <g transform={`translate(${midX}, ${midY})`}>
+                    <rect x={-conn.label.length * 3.5 - 6} y={-9} width={conn.label.length * 7 + 12} height={18} rx={3} fill="rgba(0,0,0,0.8)" stroke={kc.line} strokeWidth={0.5} />
+                    <text textAnchor="middle" dy={4} fill={kc.line} fontSize={10} fontFamily="inherit">{conn.label}</text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
+
+          {/* Connecting line preview */}
+          {connecting && (
+            <line x1={getPortPos(connecting.devId, connecting.portId, devices).x}
+              y1={getPortPos(connecting.devId, connecting.portId, devices).y}
+              x2={mousePos.x} y2={mousePos.y}
+              stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeDasharray="6,4" />
+          )}
+
+          {/* Sticky Notes */}
+          {stickyNotes.map(note => {
+            const isSel = selectedNote === note.id;
+            const nw = note.w || 200;
+            return (
+              <g key={note.id}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  const rect = svgRef.current.getBoundingClientRect();
+                  const w = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+                  setDraggingNote({ id: note.id, ox: w.x - note.x, oy: w.y - note.y });
+                  setSelectedNote(note.id);
+                  setSelected(null);
+                  setSelectedConn(null);
+                }}>
+                <rect x={note.x + 3} y={note.y + 3} width={nw} height={80} rx={4} fill="rgba(0,0,0,0.25)" />
+                <rect x={note.x} y={note.y} width={nw} height={80} rx={4}
+                  fill={note.color + "22"} stroke={isSel ? note.color : note.color + "44"} strokeWidth={isSel ? 2 : 1} />
+                <rect x={note.x} y={note.y} width={nw} height={22} rx={4} fill={note.color + "33"} />
+                <text x={note.x + 8} y={note.y + 15} fill={note.color} fontSize={10} fontWeight={700} fontFamily="inherit">
+                  Nota
+                </text>
+                {isSel && (
+                  <g onClick={(e) => { e.stopPropagation(); deleteStickyNote(note.id); }} style={{ cursor: "pointer" }}>
+                    <circle cx={note.x + nw - 12} cy={note.y + 12} r={8} fill="rgba(255,0,0,0.2)" stroke="rgba(255,80,80,0.5)" strokeWidth={1} />
+                    <text x={note.x + nw - 12} y={note.y + 16} textAnchor="middle" fill="#ff5050" fontSize={11}>x</text>
+                  </g>
+                )}
+                <foreignObject x={note.x + 6} y={note.y + 26} width={nw - 12} height={48}>
+                  <div xmlns="http://www.w3.org/1999/xhtml"
+                    contentEditable suppressContentEditableWarning
+                    onBlur={(e) => {
+                      setStickyNotes(ns => ns.map(n => n.id === note.id ? { ...n, text: e.target.innerText } : n));
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    style={{ color: "rgba(255,255,255,0.7)", fontSize: 10, fontFamily: "inherit", lineHeight: 1.4, outline: "none", width: "100%", height: "100%", overflow: "hidden", cursor: "text", wordBreak: "break-word" }}>
+                    {note.text}
+                  </div>
+                </foreignObject>
+              </g>
+            );
+          })}
+
+          {/* Device Nodes */}
+          {devices.map(dev => {
+            const h = nodeHeight(dev);
+            const isSel = selected === dev.id;
+            const inPorts = dev.ports.filter(p => p.dir === "in" || p.dir === "both");
+            const outPorts = dev.ports.filter(p => p.dir === "out" || p.dir === "both");
+            return (
+              <g key={dev.id} onPointerDown={(e) => startDrag(dev, e)}>
+                {/* Shadow */}
+                <rect x={dev.x + 4} y={dev.y + 4} width={NODE_W} height={h} rx={8} fill="rgba(0,0,0,0.4)" />
+                {/* Body */}
+                <rect x={dev.x} y={dev.y} width={NODE_W} height={h} rx={8}
+                  fill="rgba(18,18,28,0.95)" stroke={isSel ? dev.color : "rgba(255,255,255,0.08)"}
+                  strokeWidth={isSel ? 2 : 1} />
+                {/* Header */}
+                <rect x={dev.x} y={dev.y} width={NODE_W} height={HEADER_H} rx={8}
+                  fill={dev.color + "18"} />
+                <rect x={dev.x} y={dev.y + HEADER_H - 1} width={NODE_W} height={2}
+                  fill={dev.color + "33"} />
+                {/* Icon + Name */}
+                <text x={dev.x + 12} y={dev.y + 18} fill={dev.color} fontSize={16} fontFamily="inherit">
+                  {TYPE_ICONS[dev.type] || "\u25CF"}
+                </text>
+                <text x={dev.x + 32} y={dev.y + 18} fill="#fff" fontSize={12} fontWeight={700} fontFamily="inherit">
+                  {dev.name}
+                </text>
+                <text x={dev.x + 32} y={dev.y + 32} fill="rgba(255,255,255,0.3)" fontSize={9} fontFamily="inherit">
+                  {dev.type}
+                </text>
+                {/* Delete button */}
+                {isSel && (
+                  <g onClick={(e) => { e.stopPropagation(); deleteDevice(dev.id); }} style={{ cursor: "pointer" }}>
+                    <circle cx={dev.x + NODE_W - 14} cy={dev.y + 14} r={9} fill="rgba(255,0,0,0.2)" stroke="rgba(255,80,80,0.5)" strokeWidth={1} />
+                    <text x={dev.x + NODE_W - 14} y={dev.y + 18} textAnchor="middle" fill="#ff5050" fontSize={12}>\u00D7</text>
+                  </g>
+                )}
+                {/* Note indicator */}
+                {dev.notes && (
+                  <g onClick={(e) => { e.stopPropagation(); setEditingDeviceNote(dev.id); setSelected(dev.id); }}>
+                    <rect x={dev.x + 4} y={dev.y + h - 28} width={NODE_W - 8} height={22} rx={4}
+                      fill="rgba(255,234,167,0.1)" stroke="rgba(255,234,167,0.2)" strokeWidth={0.5} />
+                    <text x={dev.x + 12} y={dev.y + h - 14} fill="rgba(255,234,167,0.6)" fontSize={8} fontFamily="inherit">
+                      {"\u270E"} {dev.notes.length > 30 ? dev.notes.substring(0, 30) + "..." : dev.notes}
+                    </text>
+                  </g>
+                )}
+                {isSel && (
+                  <g onClick={(e) => { e.stopPropagation(); setEditingDeviceNote(dev.id); }} style={{ cursor: "pointer" }}>
+                    <circle cx={dev.x + NODE_W - 38} cy={dev.y + 14} r={9} fill="rgba(255,234,167,0.15)" stroke="rgba(255,234,167,0.4)" strokeWidth={1} />
+                    <text x={dev.x + NODE_W - 38} y={dev.y + 18} textAnchor="middle" fill="#FFEAA7" fontSize={10}>{"\u270E"}</text>
+                  </g>
+                )}
+                {isSel && (
+                  <g onClick={(e) => { e.stopPropagation(); setEditingPorts(dev.id); }} style={{ cursor: "pointer" }}>
+                    <circle cx={dev.x + NODE_W - 62} cy={dev.y + 14} r={9} fill="rgba(116,185,255,0.15)" stroke="rgba(116,185,255,0.4)" strokeWidth={1} />
+                    <text x={dev.x + NODE_W - 62} y={dev.y + 18} textAnchor="middle" fill="#74B9FF" fontSize={10}>{"\u2699"}</text>
+                  </g>
+                )}
+                {/* Input ports (left side) */}
+                {inPorts.map((port, i) => {
+                  const py = dev.y + HEADER_H + PORT_PAD + i * (PORT_H + PORT_PAD);
+                  const kc = KIND_COLORS[port.kind] || KIND_COLORS.audio;
+                  return (
+                    <g key={port.id} onClick={(e) => startConnect(dev.id, port.id, e)} style={{ cursor: "pointer" }}>
+                      <circle cx={dev.x} cy={py + PORT_H / 2} r={5} fill={kc.line} stroke="rgba(0,0,0,0.5)" strokeWidth={1.5}
+                        filter={connecting?.portId === port.id ? `url(#glow-${port.kind})` : undefined} />
+                      <rect x={dev.x + 8} y={py} width={NODE_W / 2 - 12} height={PORT_H} rx={3}
+                        fill="rgba(255,255,255,0.03)" />
+                      <text x={dev.x + 14} y={py + PORT_H / 2 + 3.5} fill="rgba(255,255,255,0.6)" fontSize={9} fontFamily="inherit">
+                        {port.name}
+                      </text>
+                    </g>
+                  );
+                })}
+                {/* Output ports (right side) */}
+                {outPorts.map((port, i) => {
+                  const py = dev.y + HEADER_H + PORT_PAD + i * (PORT_H + PORT_PAD);
+                  const kc = KIND_COLORS[port.kind] || KIND_COLORS.audio;
+                  return (
+                    <g key={port.id} onClick={(e) => startConnect(dev.id, port.id, e)} style={{ cursor: "pointer" }}>
+                      <circle cx={dev.x + NODE_W} cy={py + PORT_H / 2} r={5} fill={kc.line} stroke="rgba(0,0,0,0.5)" strokeWidth={1.5}
+                        filter={connecting?.portId === port.id ? `url(#glow-${port.kind})` : undefined} />
+                      <rect x={dev.x + NODE_W / 2 + 4} y={py} width={NODE_W / 2 - 12} height={PORT_H} rx={3}
+                        fill="rgba(255,255,255,0.03)" />
+                      <text x={dev.x + NODE_W - 14} y={py + PORT_H / 2 + 3.5} fill="rgba(255,255,255,0.6)" fontSize={9} fontFamily="inherit" textAnchor="end">
+                        {port.name}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+
+      {/* Connection Editor */}
+      {selectedConn && (() => {
+        const conn = connections.find(c => c.id === selectedConn);
+        if (!conn) return null;
+        const fromDev = devices.find(d => d.id === conn.from.device);
+        const toDev = devices.find(d => d.id === conn.to.device);
+        const fromPort = fromDev?.ports.find(p => p.id === conn.from.port);
+        const toPort = toDev?.ports.find(p => p.id === conn.to.port);
+        const kc = KIND_COLORS[conn.kind] || KIND_COLORS.audio;
+        return (
+          <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", background: "rgba(15,15,25,0.95)", border: `1px solid ${kc.line}40`, borderRadius: 8, padding: "12px 20px", display: "flex", alignItems: "center", gap: 12, backdropFilter: "blur(12px)", zIndex: 30 }}>
+            <span style={{ color: kc.line, fontSize: 11, fontFamily: "inherit" }}>
+              {fromDev?.name}:{fromPort?.name} \u2192 {toDev?.name}:{toPort?.name}
+            </span>
+            <input placeholder="Etiqueta..." value={conn.label || ""} onChange={e => {
+              setConnections(cs => cs.map(c => c.id === selectedConn ? { ...c, label: e.target.value } : c));
+            }} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, padding: "3px 8px", color: "#fff", fontSize: 11, fontFamily: "inherit", width: 120 }} />
+            <select value={conn.mode || "all"} onChange={e => {
+              setConnections(cs => cs.map(c => c.id === selectedConn ? { ...c, mode: e.target.value } : c));
+            }} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, padding: "3px 8px", color: "#fff", fontSize: 11, fontFamily: "inherit" }}>
+              <option value="all">Ambos</option>
+              <option value="daw">Solo DAW</option>
+              <option value="jam">Solo Jam</option>
+            </select>
+            <button onClick={() => deleteConnection(selectedConn)} style={{ background: "rgba(255,0,0,0.15)", border: "1px solid rgba(255,80,80,0.3)", borderRadius: 4, padding: "3px 10px", color: "#ff5050", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+              Borrar
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* Device Note Editor */}
+      {editingDeviceNote && (() => {
+        const dev = devices.find(d => d.id === editingDeviceNote);
+        if (!dev) return null;
+        return (
+          <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", background: "rgba(15,15,25,0.95)", border: "1px solid rgba(255,234,167,0.3)", borderRadius: 8, padding: "12px 20px", display: "flex", alignItems: "center", gap: 12, backdropFilter: "blur(12px)", zIndex: 30, maxWidth: 600 }}>
+            <span style={{ color: dev.color, fontSize: 11, fontFamily: "inherit", whiteSpace: "nowrap" }}>
+              {dev.name}
+            </span>
+            <input placeholder="Escribe una nota sobre este dispositivo..." value={dev.notes || ""} onChange={e => {
+              setDevices(ds => ds.map(d => d.id === editingDeviceNote ? { ...d, notes: e.target.value } : d));
+            }} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, padding: "4px 10px", color: "#fff", fontSize: 11, fontFamily: "inherit", flex: 1, minWidth: 250 }} />
+            <button onClick={() => setEditingDeviceNote(null)} style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 4, padding: "4px 12px", color: "rgba(255,255,255,0.5)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+              OK
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* Edit Ports Modal */}
+      {editingPorts && (() => {
+        const dev = devices.find(d => d.id === editingPorts);
+        if (!dev) return null;
+        const inputStyle = { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "4px 8px", color: "#fff", fontSize: 11, fontFamily: "inherit" };
+        const selectStyle = { ...inputStyle, padding: "4px" };
+        return (
+          <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={() => setEditingPorts(null)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: "rgba(20,20,35,0.98)", border: "1px solid " + dev.color + "44", borderRadius: 12, padding: 24, width: 520, maxHeight: "85vh", overflow: "auto" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                <div style={{ width: 12, height: 12, borderRadius: 3, background: dev.color }} />
+                <h3 style={{ color: "#fff", margin: 0, fontSize: 15, fontFamily: "inherit", fontWeight: 600, flex: 1 }}>Editar Puertos: {dev.name}</h3>
+                <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, fontFamily: "inherit" }}>{dev.ports.length} puertos</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, fontFamily: "inherit" }}>Nombre:</span>
+                <input value={dev.name} onChange={e => {
+                  setDevices(ds => ds.map(d => d.id === editingPorts ? { ...d, name: e.target.value } : d));
+                }} style={{ ...inputStyle, flex: 1, fontSize: 13 }} />
+                <select value={dev.type} onChange={e => {
+                  setDevices(ds => ds.map(d => d.id === editingPorts ? { ...d, type: e.target.value } : d));
+                }} style={selectStyle}>
+                  {Object.keys(TYPE_ICONS).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <input type="color" value={dev.color} onChange={e => {
+                  setDevices(ds => ds.map(d => d.id === editingPorts ? { ...d, color: e.target.value } : d));
+                }} style={{ width: 32, height: 28, border: "none", borderRadius: 4, cursor: "pointer", background: "transparent" }} />
+              </div>
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 28px", gap: 6, marginBottom: 8 }}>
+                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 9, fontFamily: "inherit", textTransform: "uppercase", letterSpacing: 1 }}>Nombre</span>
+                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 9, fontFamily: "inherit", textTransform: "uppercase", letterSpacing: 1 }}>Dir</span>
+                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 9, fontFamily: "inherit", textTransform: "uppercase", letterSpacing: 1 }}>Tipo</span>
+                  <span></span>
+                </div>
+                {dev.ports.map((port, i) => {
+                  const hasConn = connections.some(c => c.from.port === port.id || c.to.port === port.id);
+                  return (
+                    <div key={port.id} style={{ display: "grid", gridTemplateColumns: "1fr 70px 70px 28px", gap: 6, marginBottom: 4, alignItems: "center" }}>
+                      <input value={port.name} onChange={e => {
+                        setDevices(ds => ds.map(d => {
+                          if (d.id !== editingPorts) return d;
+                          const np = [...d.ports]; np[i] = { ...np[i], name: e.target.value };
+                          return { ...d, ports: np };
+                        }));
+                      }} style={{ ...inputStyle }} />
+                      <select value={port.dir} onChange={e => {
+                        setDevices(ds => ds.map(d => {
+                          if (d.id !== editingPorts) return d;
+                          const np = [...d.ports]; np[i] = { ...np[i], dir: e.target.value };
+                          return { ...d, ports: np };
+                        }));
+                      }} style={selectStyle}>
+                        <option value="in">In</option>
+                        <option value="out">Out</option>
+                        <option value="both">Both</option>
+                      </select>
+                      <select value={port.kind} onChange={e => {
+                        setDevices(ds => ds.map(d => {
+                          if (d.id !== editingPorts) return d;
+                          const np = [...d.ports]; np[i] = { ...np[i], kind: e.target.value };
+                          return { ...d, ports: np };
+                        }));
+                      }} style={selectStyle}>
+                        <option value="audio">Audio</option>
+                        <option value="midi">MIDI</option>
+                        <option value="cv">CV</option>
+                        <option value="digital">Digital</option>
+                      </select>
+                      <button onClick={() => {
+                        if (hasConn) {
+                          if (!confirm("Este puerto tiene conexiones. Se borraran. Continuar?")) return;
+                          setConnections(cs => cs.filter(c => c.from.port !== port.id && c.to.port !== port.id));
+                        }
+                        setDevices(ds => ds.map(d => {
+                          if (d.id !== editingPorts) return d;
+                          return { ...d, ports: d.ports.filter((_, j) => j !== i) };
+                        }));
+                      }} title={hasConn ? "Tiene conexiones - se borraran" : "Borrar puerto"}
+                        style={{ background: "none", border: "none", color: hasConn ? "#ff5050" : "rgba(255,255,255,0.3)", cursor: "pointer", fontSize: 14, padding: 0, fontFamily: "inherit" }}>
+                        x
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={() => {
+                setDevices(ds => ds.map(d => {
+                  if (d.id !== editingPorts) return d;
+                  const newId = d.id + "-p" + Date.now();
+                  return { ...d, ports: [...d.ports, { id: newId, name: "Nuevo", dir: "out", kind: "audio" }] };
+                }));
+              }} style={{ width: "100%", padding: "6px", background: "rgba(255,255,255,0.04)", border: "1px dashed rgba(255,255,255,0.12)", borderRadius: 4, color: "rgba(255,255,255,0.4)", fontSize: 11, cursor: "pointer", fontFamily: "inherit", marginTop: 8, marginBottom: 16 }}>
+                + Agregar Puerto
+              </button>
+              <button onClick={() => setEditingPorts(null)} style={{ width: "100%", padding: "8px", background: "rgba(116,185,255,0.15)", border: "1px solid rgba(116,185,255,0.3)", borderRadius: 6, color: "#74B9FF", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                Listo
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Add Device Modal */}
+      {showAdd && (
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.7)", zIndex: 40, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setShowAdd(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "rgba(20,20,35,0.98)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: 24, width: 380, maxHeight: "80vh", overflow: "auto" }}>
+            <h3 style={{ color: "#fff", margin: "0 0 16px", fontSize: 15, fontFamily: "inherit", fontWeight: 600 }}>Nuevo Dispositivo</h3>
+            <input placeholder="Nombre (ej: Moog Matriarch)" value={newDevice.name} onChange={e => setNewDevice(d => ({ ...d, name: e.target.value }))}
+              style={{ width: "100%", boxSizing: "border-box", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, padding: "8px 12px", color: "#fff", fontSize: 13, fontFamily: "inherit", marginBottom: 10 }} />
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              <select value={newDevice.type} onChange={e => setNewDevice(d => ({ ...d, type: e.target.value }))}
+                style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, padding: "8px", color: "#fff", fontSize: 12, fontFamily: "inherit" }}>
+                {Object.keys(TYPE_ICONS).map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <input type="color" value={newDevice.color} onChange={e => setNewDevice(d => ({ ...d, color: e.target.value }))}
+                style={{ width: 42, height: 36, border: "none", borderRadius: 6, cursor: "pointer", background: "transparent" }} />
+            </div>
+
+            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, marginBottom: 8, fontFamily: "inherit" }}>PUERTOS</div>
+            {newPorts.map((p, i) => (
+              <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                <input value={p.name} onChange={e => {
+                  const np = [...newPorts]; np[i] = { ...np[i], name: e.target.value }; setNewPorts(np);
+                }} style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "4px 8px", color: "#fff", fontSize: 11, fontFamily: "inherit" }} />
+                <select value={p.dir} onChange={e => {
+                  const np = [...newPorts]; np[i] = { ...np[i], dir: e.target.value }; setNewPorts(np);
+                }} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "4px", color: "#fff", fontSize: 11, fontFamily: "inherit" }}>
+                  <option value="in">In</option>
+                  <option value="out">Out</option>
+                  <option value="both">Both</option>
+                </select>
+                <select value={p.kind} onChange={e => {
+                  const np = [...newPorts]; np[i] = { ...np[i], kind: e.target.value }; setNewPorts(np);
+                }} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4, padding: "4px", color: "#fff", fontSize: 11, fontFamily: "inherit" }}>
+                  <option value="audio">Audio</option>
+                  <option value="midi">MIDI</option>
+                  <option value="cv">CV</option>
+                  <option value="digital">Digital</option>
+                </select>
+                <button onClick={() => setNewPorts(ps => ps.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: "#ff5050", cursor: "pointer", fontSize: 14, padding: "0 4px" }}>\u00D7</button>
+              </div>
+            ))}
+            <button onClick={addPort} style={{ width: "100%", padding: "6px", background: "rgba(255,255,255,0.04)", border: "1px dashed rgba(255,255,255,0.12)", borderRadius: 4, color: "rgba(255,255,255,0.4)", fontSize: 11, cursor: "pointer", fontFamily: "inherit", marginBottom: 16 }}>
+              + Agregar Puerto
+            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={addDevice} style={{ flex: 1, padding: "8px", background: "rgba(0,206,201,0.2)", border: "1px solid #00CEC9", borderRadius: 6, color: "#00CEC9", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                Crear
+              </button>
+              <button onClick={() => setShowAdd(false)} style={{ padding: "8px 16px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Export Modal - Copy JSON */}
+      {showExportModal && (
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setShowExportModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "rgba(20,20,35,0.98)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: 24, width: 500, maxHeight: "80vh", display: "flex", flexDirection: "column", gap: 12 }}>
+            <h3 style={{ color: "#fff", margin: 0, fontSize: 14, fontFamily: "inherit" }}>Exportar Ruteo (JSON)</h3>
+            <p style={{ color: "rgba(255,255,255,0.4)", margin: 0, fontSize: 11, fontFamily: "inherit" }}>Copia este texto y guardalo en un archivo .json, o usa el boton de copiar.</p>
+            <textarea value={exportData} readOnly style={{ width: "100%", height: 250, boxSizing: "border-box", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: 10, color: "#00CEC9", fontSize: 10, fontFamily: "inherit", resize: "none" }}
+              onClick={(e) => e.target.select()} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={copyToClipboard} style={{ flex: 1, padding: "8px", background: "rgba(0,206,201,0.2)", border: "1px solid #00CEC9", borderRadius: 6, color: "#00CEC9", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                Copiar al portapapeles
+              </button>
+              <button onClick={() => setShowExportModal(false)} style={{ padding: "8px 16px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Modal - Paste JSON */}
+      {showImportModal && (
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setShowImportModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "rgba(20,20,35,0.98)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: 24, width: 500, maxHeight: "80vh", display: "flex", flexDirection: "column", gap: 12 }}>
+            <h3 style={{ color: "#fff", margin: 0, fontSize: 14, fontFamily: "inherit" }}>Importar Ruteo (JSON)</h3>
+            <p style={{ color: "rgba(255,255,255,0.4)", margin: 0, fontSize: 11, fontFamily: "inherit" }}>Pega aqui el JSON que exportaste anteriormente.</p>
+            <textarea value={importText} onChange={e => setImportText(e.target.value)} placeholder='Pega tu JSON aqui...' style={{ width: "100%", height: 250, boxSizing: "border-box", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: 10, color: "#fff", fontSize: 10, fontFamily: "inherit", resize: "none" }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={importFromText} style={{ flex: 1, padding: "8px", background: "rgba(116,185,255,0.2)", border: "1px solid #74B9FF", borderRadius: 6, color: "#74B9FF", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                Importar
+              </button>
+              <button onClick={() => { setShowImportModal(false); setImportText(""); }} style={{ padding: "8px 16px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Snapshots / Versions Modal */}
+      {showSnapshots && (
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setShowSnapshots(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "rgba(20,20,35,0.98)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: 24, width: 450, maxHeight: "80vh", display: "flex", flexDirection: "column", gap: 12 }}>
+            <h3 style={{ color: "#fff", margin: 0, fontSize: 14, fontFamily: "inherit" }}>Versiones Guardadas</h3>
+            {savedSnapshots.length === 0 ? (
+              <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, fontFamily: "inherit", textAlign: "center", padding: 20 }}>No hay versiones guardadas. Usa el boton "Guardar" para crear una.</p>
+            ) : (
+              <div style={{ maxHeight: 400, overflow: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                {savedSnapshots.map(snap => (
+                  <div key={snap.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 6, border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ color: "#fff", fontSize: 12, fontFamily: "inherit" }}>{snap.name}</div>
+                      <div style={{ color: "rgba(255,255,255,0.3)", fontSize: 9, fontFamily: "inherit" }}>{snap.date} | {snap.data.devices?.length || 0} dispositivos, {snap.data.connections?.length || 0} conexiones</div>
+                    </div>
+                    <button onClick={() => loadSnapshot(snap)} style={{ padding: "4px 10px", background: "rgba(0,206,201,0.15)", border: "1px solid rgba(0,206,201,0.3)", borderRadius: 4, color: "#00CEC9", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>
+                      Cargar
+                    </button>
+                    <button onClick={() => deleteSnapshot(snap.id)} style={{ padding: "4px 8px", background: "rgba(255,80,80,0.1)", border: "1px solid rgba(255,80,80,0.2)", borderRadius: 4, color: "#ff5050", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>
+                      x
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={() => setShowSnapshots(false)} style={{ padding: "8px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.5)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toastMsg && (
+        <div style={{ position: "absolute", top: 56, left: "50%", transform: "translateX(-50%)", background: "rgba(15,15,25,0.95)", border: "1px solid rgba(0,206,201,0.4)", borderRadius: 8, padding: "8px 20px", zIndex: 50, backdropFilter: "blur(12px)", animation: "fadeIn 0.2s ease" }}>
+          <span style={{ color: "#00CEC9", fontSize: 12, fontFamily: "inherit" }}>{toastMsg}</span>
+        </div>
+      )}
+
+      {/* Help overlay */}
+      <div style={{ position: "absolute", bottom: 16, right: 16, color: "rgba(255,255,255,0.2)", fontSize: 9, fontFamily: "inherit", textAlign: "right", lineHeight: 1.6, zIndex: 10 }}>
+        Arrastra nodos • Click en puerto para conectar • Click derecho / Esc / click en fondo = cancelar cable • Scroll = zoom • Click+drag fondo = pan
+      </div>
+    </div>
+  );
+}
+
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<StudioRouter />);
+  </script>
+</body>
+</html>
