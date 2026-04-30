@@ -822,8 +822,27 @@
                 var from = getPortPos(conn.from.device, conn.from.port, devices);
                 var to = getPortPos(conn.to.device, conn.to.port, devices);
                 var kc = KIND_COLORS[conn.kind] || KIND_COLORS.audio;
-                var dx = Math.abs(to.x - from.x) * 0.5;
-                var path = "M" + from.x + "," + from.y + " C" + (from.x + dx) + "," + from.y + " " + (to.x - dx) + "," + to.y + " " + to.x + "," + to.y;
+                var distX = to.x - from.x;
+                var distY = to.y - from.y;
+                var dist = Math.sqrt(distX * distX + distY * distY);
+                var bend = Math.max(80, Math.min(400, Math.abs(distX) * 0.5, dist * 0.5));
+                // If target is to the left of source, loop around
+                var c1x, c1y, c2x, c2y;
+                if (distX >= 0) {
+                  // Normal case: target is to the right
+                  c1x = from.x + bend;
+                  c1y = from.y;
+                  c2x = to.x - bend;
+                  c2y = to.y;
+                } else {
+                  // Target is to the left: curve outward then back
+                  var vOffset = Math.max(80, Math.abs(distY) * 0.4);
+                  c1x = from.x + bend;
+                  c1y = from.y + (distY > 0 ? vOffset : -vOffset);
+                  c2x = to.x - bend;
+                  c2y = to.y + (distY > 0 ? vOffset : -vOffset);
+                }
+                var path = "M" + from.x + "," + from.y + " C" + c1x + "," + c1y + " " + c2x + "," + c2y + " " + to.x + "," + to.y;
                 var isSel = selectedConn === conn.id;
                 var isMSel = multiSelectConn.indexOf(conn.id) >= 0;
                 var midX = (from.x + to.x) / 2;
