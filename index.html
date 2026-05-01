@@ -33,12 +33,12 @@
     };
 
     const TYPE_ICONS = {
-      sequencer: "\u2399", synth: "\u223F", sampler: "\u25A6",
-      "drum-machine": "\u25C9", controller: "\u2B1A", mixer: "\u2261",
-      interface: "\u25C8", preamp: "\u25B3", converter: "\u21C4",
-      effect: "\u2606", "midi-router": "\u2194", "midi-hub": "\u2B82",
-      modular: "\u25A4", clock: "\u23F1", tablet: "\u25FB",
-      patchbay: "\u2503", monitor: "\u25E8", mic: "\u2388",
+      sequencer: "⎙", synth: "∿", sampler: "▦",
+      "drum-machine": "◉", controller: "⬚", mixer: "≡",
+      interface: "◈", preamp: "△", converter: "⇄",
+      effect: "☆", "midi-router": "↔", "midi-hub": "⮂",
+      modular: "▤", clock: "⏱", tablet: "◻",
+      patchbay: "┃", monitor: "◨", mic: "⎈",
     };
 
     const DEFAULT_DEVICES = [
@@ -395,6 +395,18 @@
       var [savedSnapshots, setSavedSnapshots] = useState([]);
       var [showSnapshots, setShowSnapshots] = useState(false);
       var [selectedNote, setSelectedNote] = useState(null);
+      var [hoveredPort, setHoveredPort] = useState(null);
+      var [globalCableW, setGlobalCableW] = useState(2);
+      var [globalCableOp, setGlobalCableOp] = useState(0.6);
+      var [showCableStyle, setShowCableStyle] = useState(false);
+      var [showLayouts, setShowLayouts] = useState(false);
+      var [userLayouts, setUserLayouts] = useState([]);
+      var [showUserLayouts, setShowUserLayouts] = useState(false);
+      var [newLayoutName, setNewLayoutName] = useState("");
+      var [hoveredConn, setHoveredConn] = useState(null);
+      var [cableStyle, setCableStyle] = useState("bezier");
+      var [isAnimating, setIsAnimating] = useState(false); // "bezier" or "ortho"  // {devId, portId, x, y}
+      var [focusedPort, setFocusedPort] = useState(null); // {devId, portId}
       var [draggingNote2, setDraggingNote2] = useState(null);
 
       var svgRef = useRef(null);
@@ -421,6 +433,10 @@
         try {
           var snaps = localStorage.getItem("studio-router-snapshots");
           if (snaps) setSavedSnapshots(JSON.parse(snaps));
+        } catch(e) {}
+        try {
+          var uls = localStorage.getItem("studio-router-user-layouts");
+          if (uls) setUserLayouts(JSON.parse(uls));
         } catch(e) {}
       }, []);
 
@@ -468,6 +484,10 @@
           setSelectedConn(null);
           setMultiSelect([]);
           setMultiSelectConn([]);
+          setFocusedPort(null);
+          setShowLayouts(false);
+          setShowCableStyle(false);
+          setShowUserLayouts(false);
         }
       }
 
@@ -691,9 +711,225 @@
         showToast("Reset completo");
       }
 
+      function animateTo(targetPositions) {
+        var startPositions = {};
+        devices.forEach(function(d) { startPositions[d.id] = { x: d.x, y: d.y }; });
+        var start = null;
+        var duration = 600;
+        setIsAnimating(true);
+        function step(ts) {
+          if (!start) start = ts;
+          var progress = Math.min((ts - start) / duration, 1);
+          var ease = 1 - Math.pow(1 - progress, 3);
+          setDevices(function(ds) {
+            return ds.map(function(d) {
+              var from = startPositions[d.id] || { x: d.x, y: d.y };
+              var to = targetPositions[d.id] || { x: d.x, y: d.y };
+              return Object.assign({}, d, {
+                x: from.x + (to.x - from.x) * ease,
+                y: from.y + (to.y - from.y) * ease,
+              });
+            });
+          });
+          if (progress < 1) {
+            requestAnimationFrame(step);
+          } else {
+            setIsAnimating(false);
+          }
+        }
+        requestAnimationFrame(step);
+      }
+
+      function calcNodeH(dev) {
+        var inP = dev.ports.filter(function(p) { return p.dir === "in" || p.dir === "both"; }).length;
+        var outP = dev.ports.filter(function(p) { return p.dir === "out" || p.dir === "both"; }).length;
+        var base = 42 + Math.max(inP, outP) * 28 + 12;
+        return dev.notes ? base + 28 : base;
+      }
+
+      function layoutGrid() {
+        var cols = Math.ceil(Math.sqrt(devices.length));
+        var gapX = 40, gapY = 40;
+        var startX = 60, startY = 80;
+        // Calculate max height per row
+        var rowHeights = [];
+        devices.forEach(function(d, i) {
+          var row = Math.floor(i / cols);
+          var h = calcNodeH(d);
+          rowHeights[row] = Math.max(rowHeights[row] || 0, h);
+        });
+        var positions = {};
+        var colX = startX;
+        var colWidths = [];
+        for (var c = 0; c < cols; c++) {
+          colWidths[c] = NODE_W + gapX;
+        }
+        devices.forEach(function(d, i) {
+          var col = i % cols;
+          var row = Math.floor(i / cols);
+          var cx = startX + col * (NODE_W + gapX);
+          var cy = startY;
+          for (var r = 0; r < row; r++) {
+            cy += (rowHeights[r] || 200) + gapY;
+          }
+          positions[d.id] = { x: cx, y: cy };
+        });
+        animateTo(positions);
+        setTimeout(function() { fitToView(); }, 650);
+      }
+
+      function layoutByType() {
+        var typeGroups = {
+          sequencer: [], "midi-router": [], "midi-hub": [], controller: [],
+          synth: [], "drum-machine": [], sampler: [], modular: [],
+          mixer: [], effect: [], patchbay: [],
+          interface: [], preamp: [], converter: [], clock: [],
+          monitor: [], mic: [], tablet: [],
+        };
+        devices.forEach(function(d) {
+          var grp = typeGroups[d.type];
+          if (!grp) grp = typeGroups.synth;
+          grp.push(d);
+        });
+        var positions = {};
+        var colX = 60;
+        var gapX = 40, gapY = 30;
+        Object.keys(typeGroups).forEach(function(type) {
+          var group = typeGroups[type];
+          if (group.length === 0) return;
+          var y = 80;
+          group.forEach(function(d) {
+            positions[d.id] = { x: colX, y: y };
+            y += calcNodeH(d) + gapY;
+          });
+          colX += NODE_W + gapX;
+        });
+        animateTo(positions);
+        setTimeout(function() { fitToView(); }, 650);
+      }
+
+      function layoutSignalFlow() {
+        var columns = {
+          sources:    ["hapax", "octatrack", "rytm", "hydra", "pro2", "td3", "subphatty", "ipad", "sv100", "fcone", "twister"],
+          controllers: ["mrcc", "rk004", "misslink", "usamo", "metamod", "mutbrain"],
+          processing: ["h9", "heat", "rat", "optxv2"],
+          routing:    ["spatch", "fx16ii"],
+          capture:    ["motu", "octopre"],
+          output:     ["mondesk", "monjam", "sub", "pc", "modular"],
+        };
+        var colKeys = Object.keys(columns);
+        var positions = {};
+        var colX = 60;
+        var gapX = 40, gapY = 30;
+        colKeys.forEach(function(col) {
+          var ids = columns[col];
+          var devInCol = devices.filter(function(d) { return ids.indexOf(d.id) >= 0; });
+          if (col === "sources") {
+            devices.forEach(function(d) {
+              var found = false;
+              colKeys.forEach(function(k) { if (columns[k].indexOf(d.id) >= 0) found = true; });
+              if (!found) devInCol.push(d);
+            });
+          }
+          if (devInCol.length === 0) return;
+          var y = 80;
+          devInCol.forEach(function(d) {
+            positions[d.id] = { x: colX, y: y };
+            y += calcNodeH(d) + gapY;
+          });
+          colX += NODE_W + gapX;
+        });
+        animateTo(positions);
+        setTimeout(function() { fitToView(); }, 650);
+      }
+
+      function layoutCircular() {
+        var radius = Math.max(500, devices.length * 55);
+        var cx = radius + NODE_W;
+        var cy = radius + 100;
+        var positions = {};
+        devices.forEach(function(d, i) {
+          var angle = (i / devices.length) * 2 * Math.PI - Math.PI / 2;
+          positions[d.id] = {
+            x: cx + Math.cos(angle) * radius - NODE_W / 2,
+            y: cy + Math.sin(angle) * radius - 60,
+          };
+        });
+        animateTo(positions);
+        // After animation, fit to view
+        setTimeout(function() { fitToView(); }, 650);
+      }
+
+      function saveUserLayout(name) {
+        if (!name || !name.trim()) return;
+        var positions = {};
+        devices.forEach(function(d) { positions[d.id] = { x: d.x, y: d.y }; });
+        var layout = {
+          id: "ul-" + Date.now(),
+          name: name.trim(),
+          date: new Date().toISOString().slice(0, 19).replace("T", " "),
+          positions: positions,
+        };
+        var updated = userLayouts.concat([layout]);
+        setUserLayouts(updated);
+        try { localStorage.setItem("studio-router-user-layouts", JSON.stringify(updated)); } catch(e) {}
+        setNewLayoutName("");
+        showToast("Layout guardado: " + layout.name);
+      }
+
+      function loadUserLayout(layout) {
+        var positions = layout.positions;
+        // Only move devices that exist in both layout and current devices
+        setDevices(function(ds) {
+          return ds.map(function(d) {
+            if (positions[d.id]) {
+              return Object.assign({}, d, { x: positions[d.id].x, y: positions[d.id].y });
+            }
+            return d;
+          });
+        });
+        setTimeout(function() { fitToView(); }, 100);
+        showToast("Layout cargado: " + layout.name);
+      }
+
+      function deleteUserLayout(id) {
+        var updated = userLayouts.filter(function(l) { return l.id !== id; });
+        setUserLayouts(updated);
+        try { localStorage.setItem("studio-router-user-layouts", JSON.stringify(updated)); } catch(e) {}
+      }
+
+      function fitToView() {
+        if (devices.length === 0) return;
+        var svgEl = svgRef.current;
+        if (!svgEl) return;
+        var vw = svgEl.clientWidth || window.innerWidth;
+        var vh = svgEl.clientHeight || window.innerHeight;
+        var pad = 60;
+        // Calculate bounding box of all devices
+        var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        devices.forEach(function(d) {
+          var h = calcNodeH(d);
+          minX = Math.min(minX, d.x);
+          minY = Math.min(minY, d.y);
+          maxX = Math.max(maxX, d.x + NODE_W);
+          maxY = Math.max(maxY, d.y + h);
+        });
+        var contentW = maxX - minX;
+        var contentH = maxY - minY;
+        var scaleX = (vw - pad * 2) / contentW;
+        var scaleY = (vh - pad * 2) / contentH;
+        var newZoom = Math.min(scaleX, scaleY, 1.0);
+        newZoom = Math.max(newZoom, 0.15);
+        var newPanX = pad - minX * newZoom + ((vw - pad * 2) - contentW * newZoom) / 2;
+        var newPanY = pad - minY * newZoom + ((vh - pad * 2) - contentH * newZoom) / 2;
+        // Account for toolbar height
+        newPanY += 22;
+        setZoom(newZoom);
+        setPan({ x: newPanX, y: newPanY });
+      }
+
       function resetView() {
-        setPan({ x: 60, y: 60 });
-        setZoom(0.55);
+        fitToView();
       }
 
       var filteredConns = connections.filter(function(c) {
@@ -720,7 +956,7 @@
             background: "rgba(12,12,20,0.97)", borderBottom: "1px solid rgba(255,255,255,0.06)",
             padding: "7px 14px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: "#fff", letterSpacing: 2, marginRight: 4 }}>
-              <span style={{ color: "#00CEC9" }}>\u25C8</span> STUDIO ROUTER
+              <span style={{ color: "#00CEC9" }}>◈</span> STUDIO ROUTER
             </span>
             <div style={{ width: 1, height: 18, background: "rgba(255,255,255,0.1)" }} />
             {["all","audio","midi","cv","digital"].map(function(f) {
@@ -783,11 +1019,123 @@
             <button onClick={resetView} style={btnStyle("rgba(255,255,255,0.05)","rgba(255,255,255,0.1)","rgba(255,255,255,0.4)")}>
               Vista
             </button>
+            <div style={{ position: "relative" }}>
+              <button onClick={function() { setShowLayouts(function(v) { return !v; }); }}
+                style={btnStyle("rgba(116,185,255,0.08)","rgba(116,185,255,0.3)","rgba(116,185,255,0.7)")}>
+                ⊞ Layout
+              </button>
+              {showLayouts ? (
+                <div style={{ position: "absolute", top: 34, right: 0, background: "rgba(12,12,22,0.98)",
+                  border: "1px solid rgba(116,185,255,0.2)", borderRadius: 8, padding: 8,
+                  display: "flex", flexDirection: "column", gap: 5, zIndex: 100, minWidth: 160,
+                  backdropFilter: "blur(12px)" }}>
+                  {[
+                    { key: "grid", label: "⊞  Grid", desc: "Cuadricula ordenada" },
+                    { key: "type", label: "⊟  Por Tipo", desc: "Agrupado por categoria" },
+                    { key: "flow", label: "→  Flujo de Senal", desc: "Fuentes a salidas" },
+                    { key: "circle", label: "◎  Circular", desc: "Vista central" },
+                  ].map(function(l) {
+                    return (
+                      <button key={l.key} onClick={function() {
+                        setShowLayouts(false);
+                        if (l.key === "grid") layoutGrid();
+                        else if (l.key === "type") layoutByType();
+                        else if (l.key === "flow") layoutSignalFlow();
+                        else if (l.key === "circle") layoutCircular();
+                      }} style={{ padding: "7px 12px", background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.07)", borderRadius: 5,
+                        color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                        textAlign: "left", display: "flex", flexDirection: "column", gap: 1 }}>
+                        <span>{l.label}</span>
+                        <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 9 }}>{l.desc}</span>
+                      </button>
+                    );
+                  })}
+                  <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", marginTop: 4, paddingTop: 6 }}>
+                    <button onClick={function() { setShowLayouts(false); setShowUserLayouts(true); }}
+                      style={{ width: "100%", padding: "7px 12px", background: "rgba(232,185,49,0.08)",
+                        border: "1px solid rgba(232,185,49,0.2)", borderRadius: 5,
+                        color: "#E8B931", fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                        textAlign: "left", display: "flex", flexDirection: "column", gap: 1 }}>
+                      <span>★  Mis Layouts {userLayouts.length > 0 ? "(" + userLayouts.length + ")" : ""}</span>
+                      <span style={{ color: "rgba(232,185,49,0.5)", fontSize: 9 }}>Guardar y cargar posiciones</span>
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <button onClick={function() { setShowCableStyle(function(v) { return !v; }); }}
+              style={btnStyle(showCableStyle ? "rgba(0,206,201,0.15)" : "rgba(255,255,255,0.05)", showCableStyle ? "#00CEC9" : "rgba(255,255,255,0.1)", showCableStyle ? "#00CEC9" : "rgba(255,255,255,0.4)")}>
+              Cables
+            </button>
             <button onClick={resetToDefaults} style={btnStyle("rgba(255,80,80,0.08)","rgba(255,80,80,0.2)","rgba(255,80,80,0.6)")}>
               Reset
             </button>
             <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>{Math.round(zoom * 100)}%</span>
           </div>
+
+          {/* Global cable style panel */}
+          {showCableStyle ? (
+            <div style={{ position: "absolute", top: 44, right: 14, zIndex: 25,
+              background: "rgba(12,12,22,0.97)", border: "1px solid rgba(0,206,201,0.2)",
+              borderRadius: 8, padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10,
+              backdropFilter: "blur(12px)", minWidth: 220 }}>
+              <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 10, fontFamily: "inherit", letterSpacing: 1 }}>
+                ESTILO GLOBAL DE CABLES
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+              {[
+                { key: "bezier", label: "~ Curvas" },
+                { key: "ortho",  label: "⌐ Ortogonal" },
+                { key: "straight", label: "/ Rectos" },
+              ].map(function(s) {
+                var active = cableStyle === s.key;
+                return (
+                  <button key={s.key} onClick={function() { setCableStyle(s.key); }}
+                    style={{ flex: 1, padding: "6px 4px", fontSize: 10, fontFamily: "inherit",
+                      cursor: "pointer", borderRadius: 5,
+                      background: active ? "rgba(0,206,201,0.2)" : "rgba(255,255,255,0.04)",
+                      border: "1px solid " + (active ? "#00CEC9" : "rgba(255,255,255,0.1)"),
+                      color: active ? "#00CEC9" : "rgba(255,255,255,0.4)" }}>
+                    {s.label}
+                  </button>
+                );
+              })}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, fontFamily: "inherit", minWidth: 60 }}>Grosor</span>
+                <input type="range" min="1" max="8" step="0.5" value={globalCableW}
+                  onChange={function(e) { setGlobalCableW(parseFloat(e.target.value)); }}
+                  style={{ flex: 1, accentColor: "#00CEC9" }} />
+                <span style={{ color: "#00CEC9", fontSize: 11, fontFamily: "inherit", minWidth: 24 }}>{globalCableW}px</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, fontFamily: "inherit", minWidth: 60 }}>Opacidad</span>
+                <input type="range" min="0.05" max="1" step="0.05" value={globalCableOp}
+                  onChange={function(e) { setGlobalCableOp(parseFloat(e.target.value)); }}
+                  style={{ flex: 1, accentColor: "#00CEC9" }} />
+                <span style={{ color: "#00CEC9", fontSize: 11, fontFamily: "inherit", minWidth: 32 }}>{Math.round(globalCableOp * 100)}%</span>
+              </div>
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 8 }}>
+                <div style={{ color: "rgba(255,255,255,0.3)", fontSize: 9, fontFamily: "inherit", marginBottom: 6 }}>
+                  Los cables con estilo individual mantienen su propio ajuste.
+                </div>
+                <button onClick={function() {
+                  setConnections(function(cs) {
+                    return cs.map(function(c) {
+                      return Object.assign({}, c, { strokeW: undefined, opacity: undefined });
+                    });
+                  });
+                  setGlobalCableW(2);
+                  setGlobalCableOp(0.6);
+                }} style={{ width: "100%", padding: "5px", background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4,
+                  color: "rgba(255,255,255,0.3)", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>
+                  Resetear todos a defecto
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {/* SVG Canvas */}
           <svg ref={svgRef} style={{ width: "100%", height: "100%",
@@ -798,7 +1146,7 @@
             onPointerUp={handlePointerUp}
             onContextMenu={function(e) { e.preventDefault(); setConnecting(null); }}
             tabIndex={0}
-            onKeyDown={function(e) { if (e.key === "Escape") { setConnecting(null); setSelected(null); setSelectedConn(null); setMultiSelect([]); setMultiSelectConn([]); } }}>
+            onKeyDown={function(e) { if (e.key === "Escape") { setConnecting(null); setSelected(null); setSelectedConn(null); setMultiSelect([]); setMultiSelectConn([]); setFocusedPort(null); } }}>
             <defs>
               <pattern id="grid" x="0" y="0" width={40 * zoom} height={40 * zoom} patternUnits="userSpaceOnUse">
                 <circle cx={pan.x % (40 * zoom)} cy={pan.y % (40 * zoom)} r="0.8" fill="rgba(255,255,255,0.04)" />
@@ -824,39 +1172,100 @@
                 var kc = KIND_COLORS[conn.kind] || KIND_COLORS.audio;
                 var distX = to.x - from.x;
                 var distY = to.y - from.y;
-                var dist = Math.sqrt(distX * distX + distY * distY);
-                var bend = Math.max(80, Math.min(400, Math.abs(distX) * 0.5, dist * 0.5));
-                // If target is to the left of source, loop around
-                var c1x, c1y, c2x, c2y;
-                if (distX >= 0) {
-                  // Normal case: target is to the right
-                  c1x = from.x + bend;
-                  c1y = from.y;
-                  c2x = to.x - bend;
-                  c2y = to.y;
+                var path;
+                if (cableStyle === "ortho") {
+                  // Orthogonal: horizontal → vertical → horizontal with rounded corners
+                  var midX = from.x + distX * 0.5;
+                  var r = Math.min(18, Math.abs(distX) * 0.25, Math.abs(distY) * 0.25);
+                  if (Math.abs(distY) < 4) {
+                    // Same height - just a horizontal line
+                    path = "M" + from.x + "," + from.y + " L" + to.x + "," + to.y;
+                  } else if (distX >= 60) {
+                    // Target to the right - simple elbow
+                    var sy = distY > 0 ? r : -r;
+                    path = "M" + from.x + "," + from.y +
+                      " L" + (midX - r) + "," + from.y +
+                      " Q" + midX + "," + from.y + " " + midX + "," + (from.y + sy) +
+                      " L" + midX + "," + (to.y - sy) +
+                      " Q" + midX + "," + to.y + " " + (midX + r) + "," + to.y +
+                      " L" + to.x + "," + to.y;
+                  } else {
+                    // Target to left or close - go out then back
+                    var outX = from.x + 60;
+                    var inX = to.x - 60;
+                    var midY = from.y + distY * 0.5;
+                    var sy2 = distY > 0 ? r : -r;
+                    path = "M" + from.x + "," + from.y +
+                      " L" + (outX - r) + "," + from.y +
+                      " Q" + outX + "," + from.y + " " + outX + "," + (from.y + sy2) +
+                      " L" + outX + "," + (midY - sy2) +
+                      " Q" + outX + "," + midY + " " + (outX - r) + "," + midY +
+                      " L" + (inX + r) + "," + midY +
+                      " Q" + inX + "," + midY + " " + inX + "," + (midY + sy2) +
+                      " L" + inX + "," + (to.y - sy2) +
+                      " Q" + inX + "," + to.y + " " + (inX + r) + "," + to.y +
+                      " L" + to.x + "," + to.y;
+                  }
+                } else if (cableStyle === "straight") {
+                  path = "M" + from.x + "," + from.y + " L" + to.x + "," + to.y;
                 } else {
-                  // Target is to the left: curve outward then back
-                  var vOffset = Math.max(80, Math.abs(distY) * 0.4);
-                  c1x = from.x + bend;
-                  c1y = from.y + (distY > 0 ? vOffset : -vOffset);
-                  c2x = to.x - bend;
-                  c2y = to.y + (distY > 0 ? vOffset : -vOffset);
+                  // Bezier curves
+                  var dist2 = Math.sqrt(distX * distX + distY * distY);
+                  var bend = Math.max(80, Math.min(400, Math.abs(distX) * 0.5, dist2 * 0.5));
+                  var c1x, c1y, c2x, c2y;
+                  if (distX >= 0) {
+                    c1x = from.x + bend; c1y = from.y;
+                    c2x = to.x - bend;   c2y = to.y;
+                  } else {
+                    var vOffset = Math.max(80, Math.abs(distY) * 0.4);
+                    c1x = from.x + bend; c1y = from.y + (distY > 0 ? vOffset : -vOffset);
+                    c2x = to.x - bend;   c2y = to.y + (distY > 0 ? vOffset : -vOffset);
+                  }
+                  path = "M" + from.x + "," + from.y + " C" + c1x + "," + c1y + " " + c2x + "," + c2y + " " + to.x + "," + to.y;
                 }
-                var path = "M" + from.x + "," + from.y + " C" + c1x + "," + c1y + " " + c2x + "," + c2y + " " + to.x + "," + to.y;
                 var isSel = selectedConn === conn.id;
                 var isMSel = multiSelectConn.indexOf(conn.id) >= 0;
                 var midX = (from.x + to.x) / 2;
                 var midY = (from.y + to.y) / 2;
                 var dashed = conn.mode === "jam" ? "6,4" : conn.mode === "daw" ? "2,4" : "none";
-                var strokeColor = isMSel ? "#00CEC9" : kc.line;
-                var strokeW = isMSel ? 4 : isSel ? 3.5 : 2;
-                var strokeOp = isMSel || isSel ? 1 : 0.6;
+                var isFocused = focusedPort && (
+                  (conn.from.device === focusedPort.devId && conn.from.port === focusedPort.portId) ||
+                  (conn.to.device === focusedPort.devId && conn.to.port === focusedPort.portId)
+                );
+                var isDimmed = focusedPort && !isFocused && !isSel && !isMSel;
+                var baseW = conn.strokeW || globalCableW;
+                var baseOp = conn.opacity !== undefined ? conn.opacity : globalCableOp;
+                var isHov = hoveredConn === conn.id;
+                var strokeColor = isMSel ? "#00CEC9" : isFocused ? "#fff" : isHov ? "#fff" : kc.line;
+                var strokeW = isMSel ? Math.max(4, baseW) : isFocused ? Math.max(4, baseW) : isSel ? Math.max(3.5, baseW) : isHov ? Math.max(3, baseW) : baseW;
+                var strokeOp = isDimmed ? 0.05 : (isMSel || isFocused || isSel || isHov ? 1 : baseOp);
                 return (
                   <g key={conn.id}>
                     <path d={path} fill="none" stroke={strokeColor} strokeWidth={strokeW}
                       strokeDasharray={dashed} strokeOpacity={strokeOp}
-                      filter={isMSel || isSel ? "url(#glow-" + (conn.kind || "audio") + ")" : undefined}
+                      filter={isMSel || isFocused || isSel || isHov ? "url(#glow-" + (conn.kind || "audio") + ")" : undefined}
+                      style={{ cursor: "pointer", transition: "stroke-opacity 0.15s, stroke-width 0.15s" }}
+                      onMouseEnter={function() { setHoveredConn(conn.id); }}
+                      onMouseLeave={function() { setHoveredConn(null); }}
+                      onClick={function(e) {
+                        e.stopPropagation();
+                        var cid = conn.id;
+                        if (e.ctrlKey || e.metaKey) {
+                          setMultiSelectConn(function(msc) {
+                            if (msc.indexOf(cid) >= 0) return msc.filter(function(id) { return id !== cid; });
+                            return msc.concat([cid]);
+                          });
+                          setSelectedConn(null);
+                        } else {
+                          setSelectedConn(cid);
+                          setMultiSelectConn([]);
+                        }
+                      }}
+                    />
+                    <path d={path} fill="none" stroke="transparent" strokeWidth={18}
                       style={{ cursor: "pointer" }}
+                      onMouseEnter={function() { setHoveredConn(conn.id); }}
+                      onMouseLeave={function() { setHoveredConn(null); }}
                       onClick={function(e) {
                         e.stopPropagation();
                         var cid = conn.id;
@@ -959,7 +1368,7 @@
                     <rect x={dev.x} y={dev.y} width={NODE_W} height={HEADER_H} rx={8} fill={dev.color + "18"} />
                     <rect x={dev.x} y={dev.y + HEADER_H - 1} width={NODE_W} height={2} fill={dev.color + "33"} />
                     <text x={dev.x + 12} y={dev.y + 18} fill={dev.color} fontSize={16} fontFamily="inherit">
-                      {TYPE_ICONS[dev.type] || "\u25CF"}
+                      {TYPE_ICONS[dev.type] || "●"}
                     </text>
                     <text x={dev.x + 32} y={dev.y + 18} fill="#fff" fontSize={12} fontWeight={700} fontFamily="inherit">{dev.name}</text>
                     <text x={dev.x + 32} y={dev.y + 32} fill="rgba(255,255,255,0.3)" fontSize={9} fontFamily="inherit">{dev.type}</text>
@@ -984,11 +1393,11 @@
                         </g>
                         <g onClick={function(e) { e.stopPropagation(); setEditingDeviceNote(dev.id); }} style={{ cursor: "pointer" }}>
                           <circle cx={dev.x + NODE_W - 38} cy={dev.y + 14} r={9} fill="rgba(255,234,167,0.15)" stroke="rgba(255,234,167,0.4)" strokeWidth={1} />
-                          <text x={dev.x + NODE_W - 38} y={dev.y + 18} textAnchor="middle" fill="#FFEAA7" fontSize={10}>\u270E</text>
+                          <text x={dev.x + NODE_W - 38} y={dev.y + 18} textAnchor="middle" fill="#FFEAA7" fontSize={10}>✎</text>
                         </g>
                         <g onClick={function(e) { e.stopPropagation(); setEditingPorts(dev.id); }} style={{ cursor: "pointer" }}>
                           <circle cx={dev.x + NODE_W - 62} cy={dev.y + 14} r={9} fill="rgba(116,185,255,0.15)" stroke="rgba(116,185,255,0.4)" strokeWidth={1} />
-                          <text x={dev.x + NODE_W - 62} y={dev.y + 18} textAnchor="middle" fill="#74B9FF" fontSize={10}>\u2699</text>
+                          <text x={dev.x + NODE_W - 62} y={dev.y + 18} textAnchor="middle" fill="#74B9FF" fontSize={10}>⚙</text>
                         </g>
                       </g>
                     ) : null}
@@ -998,8 +1407,26 @@
                       var py = dev.y + HEADER_H + PORT_PAD + i * (PORT_H + PORT_PAD);
                       var kc = KIND_COLORS[port.kind] || KIND_COLORS.audio;
                       return (
-                        <g key={port.id} onClick={function(e) { startConnect(dev.id, port.id, e); }} style={{ cursor: "pointer" }}>
-                          <circle cx={dev.x} cy={py + PORT_H / 2} r={5} fill={kc.line} stroke="rgba(0,0,0,0.5)" strokeWidth={1.5} />
+                        <g key={port.id}
+                          onClick={function(e) {
+                            if (e.shiftKey) {
+                              e.stopPropagation();
+                              var fp = focusedPort && focusedPort.devId === dev.id && focusedPort.portId === port.id;
+                              setFocusedPort(fp ? null : { devId: dev.id, portId: port.id });
+                              return;
+                            }
+                            startConnect(dev.id, port.id, e);
+                          }}
+                          onMouseEnter={function(e) {
+                            var rect = svgRef.current.getBoundingClientRect();
+                            setHoveredPort({ devId: dev.id, portId: port.id,
+                              sx: e.clientX - rect.left, sy: e.clientY - rect.top });
+                          }}
+                          onMouseLeave={function() { setHoveredPort(null); }}
+                          style={{ cursor: "pointer" }}>
+                          <circle cx={dev.x} cy={py + PORT_H / 2} r={5}
+                            fill={focusedPort && focusedPort.devId === dev.id && focusedPort.portId === port.id ? "#fff" : kc.line}
+                            stroke="rgba(0,0,0,0.5)" strokeWidth={1.5} />
                           <text x={dev.x + 12} y={py + PORT_H / 2 + 3.5} fill="rgba(255,255,255,0.6)" fontSize={9} fontFamily="inherit">{port.name}</text>
                         </g>
                       );
@@ -1009,8 +1436,26 @@
                       var py = dev.y + HEADER_H + PORT_PAD + i * (PORT_H + PORT_PAD);
                       var kc = KIND_COLORS[port.kind] || KIND_COLORS.audio;
                       return (
-                        <g key={port.id} onClick={function(e) { startConnect(dev.id, port.id, e); }} style={{ cursor: "pointer" }}>
-                          <circle cx={dev.x + NODE_W} cy={py + PORT_H / 2} r={5} fill={kc.line} stroke="rgba(0,0,0,0.5)" strokeWidth={1.5} />
+                        <g key={port.id}
+                          onClick={function(e) {
+                            if (e.shiftKey) {
+                              e.stopPropagation();
+                              var fp = focusedPort && focusedPort.devId === dev.id && focusedPort.portId === port.id;
+                              setFocusedPort(fp ? null : { devId: dev.id, portId: port.id });
+                              return;
+                            }
+                            startConnect(dev.id, port.id, e);
+                          }}
+                          onMouseEnter={function(e) {
+                            var rect = svgRef.current.getBoundingClientRect();
+                            setHoveredPort({ devId: dev.id, portId: port.id,
+                              sx: e.clientX - rect.left, sy: e.clientY - rect.top });
+                          }}
+                          onMouseLeave={function() { setHoveredPort(null); }}
+                          style={{ cursor: "pointer" }}>
+                          <circle cx={dev.x + NODE_W} cy={py + PORT_H / 2} r={5}
+                            fill={focusedPort && focusedPort.devId === dev.id && focusedPort.portId === port.id ? "#fff" : kc.line}
+                            stroke="rgba(0,0,0,0.5)" strokeWidth={1.5} />
                           <text x={dev.x + NODE_W - 12} y={py + PORT_H / 2 + 3.5} fill="rgba(255,255,255,0.6)" fontSize={9} fontFamily="inherit" textAnchor="end">{port.name}</text>
                         </g>
                       );
@@ -1054,6 +1499,28 @@
                   <option value="daw">Solo DAW</option>
                   <option value="jam">Solo Jam</option>
                 </select>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 9, fontFamily: "inherit" }}>Grosor</span>
+                  <input type="range" min="1" max="8" step="0.5"
+                    value={conn.strokeW || globalCableW}
+                    onChange={function(e) {
+                      var v = parseFloat(e.target.value); var cid = conn.id;
+                      setConnections(function(cs) { return cs.map(function(c) { return c.id === cid ? Object.assign({}, c, { strokeW: v }) : c; }); });
+                    }}
+                    style={{ width: 70, accentColor: kc.line }} />
+                  <span style={{ color: kc.line, fontSize: 10, fontFamily: "inherit", minWidth: 16 }}>{conn.strokeW || 2}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 9, fontFamily: "inherit" }}>Opacidad</span>
+                  <input type="range" min="0.05" max="1" step="0.05"
+                    value={conn.opacity !== undefined ? conn.opacity : globalCableOp}
+                    onChange={function(e) {
+                      var v = parseFloat(e.target.value); var cid = conn.id;
+                      setConnections(function(cs) { return cs.map(function(c) { return c.id === cid ? Object.assign({}, c, { opacity: v }) : c; }); });
+                    }}
+                    style={{ width: 70, accentColor: kc.line }} />
+                  <span style={{ color: kc.line, fontSize: 10, fontFamily: "inherit", minWidth: 28 }}>{Math.round((conn.opacity !== undefined ? conn.opacity : globalCableOp) * 100)}%</span>
+                </div>
                 <button onClick={function() { deleteConnection(conn.id); }}
                   style={btnStyle("rgba(255,0,0,0.15)","rgba(255,80,80,0.3)","#ff5050")}>Borrar</button>
               </div>
@@ -1371,6 +1838,139 @@
             </div>
           ) : null}
 
+          {/* Hover tooltip */}
+          {hoveredPort && !connecting ? (function() {
+            var dev = devices.find(function(d) { return d.id === hoveredPort.devId; });
+            if (!dev) return null;
+            var port = dev.ports.find(function(p) { return p.id === hoveredPort.portId; });
+            if (!port) return null;
+            var conns = connections.filter(function(c) {
+              return (c.from.device === hoveredPort.devId && c.from.port === hoveredPort.portId) ||
+                     (c.to.device === hoveredPort.devId && c.to.port === hoveredPort.portId);
+            });
+            var kc = { audio: "#00CEC9", midi: "#E8B931", cv: "#E84393", digital: "#74B9FF" };
+            var portColor = kc[port.kind] || "#fff";
+            return (
+              <div style={{ position: "absolute", left: hoveredPort.sx + 14, top: hoveredPort.sy - 10,
+                background: "rgba(10,10,18,0.97)", border: "1px solid " + portColor + "55",
+                borderRadius: 6, padding: "7px 11px", zIndex: 60, pointerEvents: "none",
+                minWidth: 140, maxWidth: 260, backdropFilter: "blur(8px)" }}>
+                <div style={{ color: portColor, fontSize: 10, fontWeight: 700, fontFamily: "inherit", marginBottom: 3 }}>
+                  {dev.name} / {port.name}
+                </div>
+                <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 9, fontFamily: "inherit", marginBottom: conns.length > 0 ? 5 : 0 }}>
+                  {port.kind} | {port.dir}
+                </div>
+                {conns.length === 0 ? (
+                  <div style={{ color: "rgba(255,255,255,0.25)", fontSize: 9, fontFamily: "inherit" }}>Sin conexiones</div>
+                ) : conns.map(function(c, i) {
+                  var isFrom = c.from.device === hoveredPort.devId && c.from.port === hoveredPort.portId;
+                  var otherDevId = isFrom ? c.to.device : c.from.device;
+                  var otherPortId = isFrom ? c.to.port : c.from.port;
+                  var otherDev = devices.find(function(d) { return d.id === otherDevId; });
+                  var otherPort = otherDev && otherDev.ports.find(function(p) { return p.id === otherPortId; });
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 5,
+                      padding: "2px 0", borderTop: i > 0 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+                      <span style={{ color: portColor, fontSize: 9 }}>{isFrom ? "→" : "←"}</span>
+                      <span style={{ color: "rgba(255,255,255,0.7)", fontSize: 9, fontFamily: "inherit" }}>
+                        {otherDev ? otherDev.name : "?"} / {otherPort ? otherPort.name : "?"}
+                      </span>
+                      {c.label ? <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 8, fontFamily: "inherit" }}>({c.label})</span> : null}
+                    </div>
+                  );
+                })}
+                {conns.length > 0 ? (
+                  <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 8, fontFamily: "inherit", marginTop: 4 }}>
+                    Click para resaltar
+                  </div>
+                ) : null}
+              </div>
+            );
+          })() : null}
+
+          {/* User Layouts Modal */}
+          {showUserLayouts ? (
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+              background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}
+              onClick={function() { setShowUserLayouts(false); }}>
+              <div onClick={function(e) { e.stopPropagation(); }}
+                style={{ background: "rgba(18,18,28,0.99)", border: "1px solid rgba(232,185,49,0.2)",
+                  borderRadius: 12, padding: 22, width: 460, maxHeight: "80vh",
+                  display: "flex", flexDirection: "column", gap: 12 }}>
+                <h3 style={{ color: "#fff", margin: 0, fontSize: 14, fontFamily: "inherit", fontWeight: 600 }}>
+                  ★ Mis Layouts
+                </h3>
+                <p style={{ color: "rgba(255,255,255,0.3)", margin: 0, fontSize: 11, fontFamily: "inherit" }}>
+                  Guarda la posicion actual de los modulos. Las conexiones no se tocan.
+                </p>
+
+                {/* Save current layout */}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    placeholder="Nombre del layout (ej: Mi setup favorito)"
+                    value={newLayoutName}
+                    onChange={function(e) { setNewLayoutName(e.target.value); }}
+                    onKeyDown={function(e) { if (e.key === "Enter") saveUserLayout(newLayoutName); }}
+                    style={{ flex: 1, background: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6,
+                      padding: "7px 10px", color: "#fff", fontSize: 12, fontFamily: "inherit" }} />
+                  <button onClick={function() { saveUserLayout(newLayoutName); }}
+                    style={{ padding: "7px 14px", background: "rgba(232,185,49,0.2)",
+                      border: "1px solid rgba(232,185,49,0.4)", borderRadius: 6,
+                      color: "#E8B931", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
+                      whiteSpace: "nowrap" }}>
+                    Guardar actual
+                  </button>
+                </div>
+
+                {/* List of saved layouts */}
+                <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                  {userLayouts.length === 0 ? (
+                    <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 12, fontFamily: "inherit",
+                      textAlign: "center", padding: "20px 0" }}>
+                      No hay layouts guardados. Acomoda los modulos como quieras y dale "Guardar actual".
+                    </div>
+                  ) : userLayouts.slice().reverse().map(function(layout) {
+                    return (
+                      <div key={layout.id} style={{ display: "flex", alignItems: "center", gap: 8,
+                        padding: "9px 12px", background: "rgba(255,255,255,0.03)",
+                        border: "1px solid rgba(255,255,255,0.06)", borderRadius: 7 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ color: "#fff", fontSize: 12, fontFamily: "inherit", fontWeight: 600 }}>
+                            {layout.name}
+                          </div>
+                          <div style={{ color: "rgba(255,255,255,0.25)", fontSize: 9, fontFamily: "inherit", marginTop: 2 }}>
+                            {layout.date} | {Object.keys(layout.positions).length} modulos
+                          </div>
+                        </div>
+                        <button onClick={function() { loadUserLayout(layout); setShowUserLayouts(false); }}
+                          style={{ padding: "5px 12px", background: "rgba(232,185,49,0.15)",
+                            border: "1px solid rgba(232,185,49,0.3)", borderRadius: 5,
+                            color: "#E8B931", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+                          Cargar
+                        </button>
+                        <button onClick={function() { deleteUserLayout(layout.id); }}
+                          style={{ padding: "5px 8px", background: "rgba(255,80,80,0.1)",
+                            border: "1px solid rgba(255,80,80,0.2)", borderRadius: 5,
+                            color: "#ff5050", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+                          x
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button onClick={function() { setShowUserLayouts(false); }}
+                  style={{ padding: "8px", background: "rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6,
+                    color: "rgba(255,255,255,0.4)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {/* Toast */}
           {toastMsg ? (
             <div style={{ position: "absolute", top: 52, left: "50%", transform: "translateX(-50%)",
@@ -1383,7 +1983,7 @@
           {/* Help */}
           <div style={{ position: "absolute", bottom: 12, right: 14, color: "rgba(255,255,255,0.18)",
             fontSize: 9, fontFamily: "inherit", textAlign: "right", lineHeight: 1.6, zIndex: 10 }}>
-            Shift+click nodo = seleccion multiple | Ctrl+click cable = seleccion cables | Click derecho / Esc = cancelar | Scroll = zoom
+            Click puerto = conectar | Shift+click puerto = resaltar conexiones | Shift+click nodo = seleccion multiple | Ctrl+click cable = multi-cables | Esc = cancelar
           </div>
         </div>
       );
