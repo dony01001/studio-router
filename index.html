@@ -387,6 +387,7 @@
       var [newPorts, setNewPorts] = useState([]);
       var [editingDeviceNote, setEditingDeviceNote] = useState(null);
       var [editingPorts, setEditingPorts] = useState(null);
+      var [dragPortIdx, setDragPortIdx] = useState(null);
       var [toastMsg, setToastMsg] = useState("");
       var [showExportModal, setShowExportModal] = useState(false);
       var [exportData, setExportData] = useState("");
@@ -1281,13 +1282,32 @@
                         }
                       }}
                     />
-                    {conn.label ? (
-                      <g transform={"translate(" + midX + "," + midY + ")"}>
-                        <rect x={-conn.label.length * 3.5 - 6} y={-9} width={conn.label.length * 7 + 12} height={18} rx={3}
-                          fill="rgba(0,0,0,0.8)" stroke={kc.line} strokeWidth={0.5} />
-                        <text textAnchor="middle" dy={4} fill={kc.line} fontSize={10} fontFamily="inherit">{conn.label}</text>
-                      </g>
-                    ) : null}
+                    {(function() {
+                      var parts = [];
+                      if (conn.kind === "midi") {
+                        if (conn.mpe) {
+                          parts.push("MPE " + (conn.mpeZone === "upper" ? "↑" : "↓"));
+                        } else {
+                          var co = conn.midiChannelOut;
+                          var ci = conn.midiChannelIn;
+                          var coStr = co === "omni" ? "Omni" : (co != null ? "Ch " + co : null);
+                          var ciStr = ci === "omni" ? "Omni" : (ci != null ? String(ci) : null);
+                          if (coStr && ciStr && String(co) !== String(ci)) parts.push(coStr + "→" + ciStr);
+                          else if (coStr) parts.push(coStr);
+                          else if (ciStr) parts.push("Ch " + ciStr);
+                        }
+                      }
+                      if (conn.label) parts.push(conn.label);
+                      var txt = parts.join(" · ");
+                      if (!txt) return null;
+                      return (
+                        <g transform={"translate(" + midX + "," + (midY - 14) + ")"} style={{ pointerEvents: "none" }}>
+                          <rect x={-txt.length * 3.5 - 6} y={-9} width={txt.length * 7 + 12} height={18} rx={3}
+                            fill="rgba(10,10,15,0.7)" stroke={kc.line} strokeWidth={0.5} />
+                          <text textAnchor="middle" dy={4} fill={kc.line} fontSize={10} fontFamily="inherit">{txt}</text>
+                        </g>
+                      );
+                    })()}
                   </g>
                 );
               })}
@@ -1521,6 +1541,55 @@
                     style={{ width: 70, accentColor: kc.line }} />
                   <span style={{ color: kc.line, fontSize: 10, fontFamily: "inherit", minWidth: 28 }}>{Math.round((conn.opacity !== undefined ? conn.opacity : globalCableOp) * 100)}%</span>
                 </div>
+                {conn.kind === "midi" ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 8, borderLeft: "1px solid rgba(232,185,49,0.25)" }}>
+                    <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 9 }}>Ch out</span>
+                    <select value={conn.midiChannelOut == null ? "" : String(conn.midiChannelOut)}
+                      onChange={function(e) {
+                        var raw = e.target.value;
+                        var v = raw === "" ? null : raw === "omni" ? "omni" : parseInt(raw, 10);
+                        var cid = conn.id;
+                        setConnections(function(cs) { return cs.map(function(c) { return c.id === cid ? Object.assign({}, c, { midiChannelOut: v }) : c; }); });
+                      }}
+                      style={Object.assign({}, selectSt, { width: 60 })}>
+                      <option value="">—</option>
+                      <option value="omni">Omni</option>
+                      {Array.from({length:16}, function(_,k){ return k+1; }).map(function(n){ return <option key={n} value={String(n)}>{n}</option>; })}
+                    </select>
+                    <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 9 }}>Ch in</span>
+                    <select value={conn.midiChannelIn == null ? "" : String(conn.midiChannelIn)}
+                      onChange={function(e) {
+                        var raw = e.target.value;
+                        var v = raw === "" ? null : raw === "omni" ? "omni" : parseInt(raw, 10);
+                        var cid = conn.id;
+                        setConnections(function(cs) { return cs.map(function(c) { return c.id === cid ? Object.assign({}, c, { midiChannelIn: v }) : c; }); });
+                      }}
+                      style={Object.assign({}, selectSt, { width: 60 })}>
+                      <option value="">—</option>
+                      <option value="omni">Omni</option>
+                      {Array.from({length:16}, function(_,k){ return k+1; }).map(function(n){ return <option key={n} value={String(n)}>{n}</option>; })}
+                    </select>
+                    <label style={{ display: "flex", alignItems: "center", gap: 3, color: "rgba(255,255,255,0.5)", fontSize: 10, cursor: "pointer" }}>
+                      <input type="checkbox" checked={!!conn.mpe}
+                        onChange={function(e) {
+                          var v = e.target.checked; var cid = conn.id;
+                          setConnections(function(cs) { return cs.map(function(c) { return c.id === cid ? Object.assign({}, c, { mpe: v, mpeZone: v ? (c.mpeZone || "lower") : null }) : c; }); });
+                        }} />
+                      MPE
+                    </label>
+                    {conn.mpe ? (
+                      <select value={conn.mpeZone || "lower"}
+                        onChange={function(e) {
+                          var v = e.target.value; var cid = conn.id;
+                          setConnections(function(cs) { return cs.map(function(c) { return c.id === cid ? Object.assign({}, c, { mpeZone: v }) : c; }); });
+                        }}
+                        style={Object.assign({}, selectSt, { width: 70 })}>
+                        <option value="lower">Lower ↓</option>
+                        <option value="upper">Upper ↑</option>
+                      </select>
+                    ) : null}
+                  </div>
+                ) : null}
                 <button onClick={function() { deleteConnection(conn.id); }}
                   style={btnStyle("rgba(255,0,0,0.15)","rgba(255,80,80,0.3)","#ff5050")}>Borrar</button>
               </div>
@@ -1532,7 +1601,7 @@
             var dev = devices.find(function(d) { return d.id === editingDeviceNote; });
             if (!dev) return null;
             return (
-              <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)",
+              <div style={{ position: "absolute", top: 70, left: "50%", transform: "translateX(-50%)",
                 background: "rgba(12,12,22,0.97)", border: "1px solid rgba(255,234,167,0.3)",
                 borderRadius: 8, padding: "10px 16px", display: "flex", alignItems: "center",
                 gap: 10, backdropFilter: "blur(12px)", zIndex: 30, maxWidth: 600 }}>
@@ -1581,8 +1650,28 @@
                   <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10, marginBottom: 8 }}>
                     {dev.ports.map(function(port, i) {
                       var hasConn = connections.some(function(c) { return c.from.port === port.id || c.to.port === port.id; });
+                      var isDragging = dragPortIdx === i;
                       return (
-                        <div key={port.id} style={{ display: "grid", gridTemplateColumns: "1fr 70px 72px 26px", gap: 5, marginBottom: 5, alignItems: "center" }}>
+                        <div key={port.id}
+                          draggable={true}
+                          onDragStart={function(e) { setDragPortIdx(i); e.dataTransfer.effectAllowed = "move"; }}
+                          onDragOver={function(e) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+                          onDrop={function(e) {
+                            e.preventDefault();
+                            var from = dragPortIdx; var to = i; var did = editingPorts;
+                            if (from === null || from === to) { setDragPortIdx(null); return; }
+                            setDevices(function(ds) { return ds.map(function(d) {
+                              if (d.id !== did) return d;
+                              var np = d.ports.slice();
+                              var moved = np.splice(from, 1)[0];
+                              np.splice(to, 0, moved);
+                              return Object.assign({}, d, { ports: np });
+                            }); });
+                            setDragPortIdx(null);
+                          }}
+                          onDragEnd={function() { setDragPortIdx(null); }}
+                          style={{ display: "grid", gridTemplateColumns: "16px 1fr 70px 72px 26px", gap: 5, marginBottom: 5, alignItems: "center", opacity: isDragging ? 0.4 : 1, cursor: "grab" }}>
+                          <span style={{ color: "rgba(255,255,255,0.25)", fontSize: 14, textAlign: "center", userSelect: "none", cursor: "grab" }}>⋮⋮</span>
                           <input value={port.name}
                             onChange={function(e) {
                               var v = e.target.value; var did = editingPorts; var ii = i;

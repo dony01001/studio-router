@@ -46,5 +46,23 @@ Solo abre `index.html` en tu navegador (Chrome, Firefox, Edge).
 
 Todo se guarda en el `localStorage` de tu navegador. No se envía nada a ningún servidor.
 
+## Roadmap
+
+Features pendientes para versiones futuras:
+
+- **Adjuntar archivos a dispositivos** — fotos del back panel, presets (.syx/.json), manuales (PDF). Storage en IndexedDB para soportar archivos binarios. Thumbnails inline + preview/download.
+- **Filtros MIDI por cable** — clock, notes, CC, PC, start/stop (refleja config MRCC)
+- **Transpose por cable MIDI** — semitonos -24 a +24
+- **Grupos de puertos** — agrupar puertos visualmente con color compartido (ej. DIN 1-4 = "Bus A")
+- **MPE member channels** — configurar rango de canales miembro (lower/upper zone)
+- **Undo/Redo** (Ctrl+Z / Ctrl+Shift+Z)
+- **Búsqueda** de dispositivos y puertos
+- **Exportar PNG/SVG** del canvas completo
+- **Modo presentación** (pantalla completa sin toolbar)
+- **Pathfinding cables** que evite módulos intermedios
+- **Handles bezier** arrastrables (puntos C1/C2)
+- **Migración a Vite + React modular** cuando agreguemos más features
+- **Soporte mobile** (drag-drop touch, gestos)
+
 ---
 Creado con Claude | Anthropic
