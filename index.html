@@ -23,6 +23,10 @@
       --blue-soft: rgba(116,185,255,0.7);
       --red-soft: rgba(255,80,80,0.6);
       --note-rgb: 255,234,167;
+      --audio-ink: #00CEC9;
+      --cv-ink: #E84393;
+      --digital-ink: #74B9FF;
+      --danger-ink: #ff5050;
       --note-k: 1;
     }
     :root[data-theme="light"] {
@@ -42,6 +46,10 @@
       --blue-soft: #2f7fd6;
       --red-soft: #d63c3c;
       --note-rgb: 200,150,20;
+      --audio-ink: #00938f;
+      --cv-ink: #c2185b;
+      --digital-ink: #2f7fd6;
+      --danger-ink: #d63c3c;
       --note-k: 1.6;
     }
     body { overflow: hidden; background: var(--bg); }
@@ -399,6 +407,11 @@
       var outP = ports.filter(function(p) { return p.dir === "out" || p.dir === "both"; }).length;
       var base = HEADER_H + Math.max(inP, outP) * (PORT_H + PORT_PAD) + PORT_PAD * 2;
       return dev.notes ? base + 28 : base;
+    }
+
+    // Color de TEXTO para un tipo de senal (legible en ambos temas); KIND_COLORS.line queda para trazos
+    function kindInk(k) {
+      return KIND_COLORS[k] ? "var(--" + k + "-ink)" : "rgb(var(--fg))";
     }
 
     // Mezcla un color #RRGGBB hacia negro (amt 0..1)
@@ -1160,15 +1173,51 @@
                   onMouseLeave={function(e) { e.currentTarget.style.background = "transparent"; }}
                   style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "6px 8px",
                     background: "transparent", border: "none", borderRadius: 5, textAlign: "left",
-                    color: it.disabled ? "rgba(var(--fg),0.2)" : it.danger ? "#ff5050" : "rgba(var(--fg),0.85)",
+                    color: it.disabled ? "rgba(var(--fg),0.2)" : it.danger ? "var(--danger-ink)" : "rgba(var(--fg),0.85)",
                     fontSize: 11, fontFamily: "inherit", cursor: it.disabled ? "default" : "pointer" }}>
                   <span style={{ width: 14, textAlign: "center", opacity: 0.8 }}>{it.icon}</span>
                   <span style={{ flex: 1 }}>{it.label}</span>
-                  {it.hint ? <span style={{ color: "rgba(var(--fg),0.25)", fontSize: 9 }}>{it.hint}</span> : null}
+                  {it.hint ? <span style={{ color: "rgba(var(--fg),0.5)", fontSize: 9 }}>{it.hint}</span> : null}
                 </button>
               );
             })}
           </div>
+        );
+      }
+
+      // ── Puerto de un nodo (entrada a la izquierda, salida a la derecha) ──
+      function renderPort(dev, port, i, isOut) {
+        var py = dev.y + HEADER_H + PORT_PAD + i * (PORT_H + PORT_PAD);
+        var kc = KIND_COLORS[port.kind] || KIND_COLORS.audio;
+        var isFocused = focusedPort && focusedPort.devId === dev.id && focusedPort.portId === port.id;
+        return (
+          <g key={port.id + (isOut ? "-o" : "-i")}
+            onContextMenu={function(e) { openCtx(e, "port", { devId: dev.id, portId: port.id }); }}
+            onDoubleClick={function(e) {
+              e.stopPropagation();
+              setConnecting(null);
+              startRenamePort(dev.id, port.id, e.clientX, e.clientY);
+            }}
+            onClick={function(e) {
+              if (e.shiftKey) {
+                e.stopPropagation();
+                setFocusedPort(isFocused ? null : { devId: dev.id, portId: port.id });
+                return;
+              }
+              startConnect(dev.id, port.id, e);
+            }}
+            onMouseEnter={function(e) {
+              var rect = svgRef.current.getBoundingClientRect();
+              setHoveredPort({ devId: dev.id, portId: port.id, sx: e.clientX - rect.left, sy: e.clientY - rect.top });
+            }}
+            onMouseLeave={function() { setHoveredPort(null); }}
+            style={{ cursor: "pointer" }}>
+            <circle cx={isOut ? dev.x + NODE_W : dev.x} cy={py + PORT_H / 2} r={5}
+              fill={isFocused ? "rgb(var(--fg))" : kc.line}
+              stroke="rgba(var(--shade),calc(0.5 * var(--shade-k)))" strokeWidth={1.5} />
+            <text x={isOut ? dev.x + NODE_W - 12 : dev.x + 12} y={py + PORT_H / 2 + 3.5}
+              fill="rgba(var(--fg),0.65)" fontSize={9} fontFamily="inherit" textAnchor={isOut ? "end" : "start"}>{port.name}</text>
+          </g>
         );
       }
 
@@ -1734,7 +1783,7 @@
                   style={btnStyle(
                     active ? (kc ? kc.line + "22" : "rgba(var(--fg),0.12)") : "transparent",
                     active ? (kc ? kc.line : "rgba(var(--fg),0.3)") : "rgba(var(--fg),0.08)",
-                    active ? (kc ? kc.line : "rgb(var(--fg))") : "rgba(var(--fg),0.4)"
+                    active ? kindInk(f) : "rgba(var(--fg),0.5)"
                   )}>
                   {f === "all" ? "Full" : kc ? kc.label : f}
                 </button>
@@ -1755,7 +1804,7 @@
             })}
             <div style={{ flex: 1 }} />
             {multiSelect.length > 0 && (
-              <button onClick={deleteMultiple} style={btnStyle("rgba(255,80,80,0.12)","rgba(255,80,80,0.4)","#ff5050")}>
+              <button onClick={deleteMultiple} style={btnStyle("rgba(255,80,80,0.12)","rgba(255,80,80,0.4)","var(--danger-ink)")}>
                 Borrar nodos ({multiSelect.length})
               </button>
             )}
@@ -1764,12 +1813,12 @@
                 Borrar cables ({multiSelectConn.length})
               </button>
             )}
-            <button onClick={undo} disabled={hist.current.past.length === 0} title="Deshacer (Ctrl+Z)"
+            <button onClick={undo} disabled={hist.current.past.length === 0} title="Deshacer (Ctrl+Z)" aria-label="Deshacer"
               style={Object.assign(btnStyle("rgba(var(--fg),0.05)","rgba(var(--fg),0.1)","rgba(var(--fg),0.6)"),
                 { opacity: hist.current.past.length === 0 ? 0.3 : 1, padding: "5px 9px" })}>
               ↶
             </button>
-            <button onClick={redo} disabled={hist.current.future.length === 0} title="Rehacer (Ctrl+Shift+Z)"
+            <button onClick={redo} disabled={hist.current.future.length === 0} title="Rehacer (Ctrl+Shift+Z)" aria-label="Rehacer"
               style={Object.assign(btnStyle("rgba(var(--fg),0.05)","rgba(var(--fg),0.1)","rgba(var(--fg),0.6)"),
                 { opacity: hist.current.future.length === 0 ? 0.3 : 1, padding: "5px 9px" })}>
               ↷
@@ -1828,7 +1877,7 @@
                         color: "rgb(var(--fg))", fontSize: 11, cursor: "pointer", fontFamily: "inherit",
                         textAlign: "left", display: "flex", flexDirection: "column", gap: 1 }}>
                         <span>{l.label}</span>
-                        <span style={{ color: "rgba(var(--fg),0.3)", fontSize: 9 }}>{l.desc}</span>
+                        <span style={{ color: "rgba(var(--fg),0.5)", fontSize: 9 }}>{l.desc}</span>
                       </button>
                     );
                   })}
@@ -1852,11 +1901,11 @@
             <button onClick={resetToDefaults} style={btnStyle("rgba(255,80,80,0.08)","rgba(255,80,80,0.2)","var(--red-soft)")}>
               Reset
             </button>
-            <button onClick={toggleTheme} title={theme === "dark" ? "Tema claro" : "Tema oscuro"}
+            <button onClick={toggleTheme} title={theme === "dark" ? "Tema claro" : "Tema oscuro"} aria-label="Cambiar tema"
               style={Object.assign(btnStyle("rgba(var(--fg),0.05)","rgba(var(--fg),0.1)","rgba(var(--fg),0.6)"), { padding: "5px 9px" })}>
               {theme === "dark" ? "☀" : "☾"}
             </button>
-            <span style={{ fontSize: 10, color: "rgba(var(--fg),0.2)" }}>{Math.round(zoom * 100)}%</span>
+            <span style={{ fontSize: 10, color: "rgba(var(--fg),0.5)" }}>{Math.round(zoom * 100)}%</span>
           </div>
 
           {/* Global cable style panel */}
@@ -1902,7 +1951,7 @@
                 <span style={{ color: "var(--teal-ink)", fontSize: 11, fontFamily: "inherit", minWidth: 32 }}>{Math.round(globalCableOp * 100)}%</span>
               </div>
               <div style={{ borderTop: "1px solid rgba(var(--fg),0.06)", paddingTop: 8 }}>
-                <div style={{ color: "rgba(var(--fg),0.3)", fontSize: 9, fontFamily: "inherit", marginBottom: 6 }}>
+                <div style={{ color: "rgba(var(--fg),0.5)", fontSize: 9, fontFamily: "inherit", marginBottom: 6 }}>
                   Los cables con estilo individual mantienen su propio ajuste.
                 </div>
                 <button onClick={function() {
@@ -1915,7 +1964,7 @@
                   setGlobalCableOp(0.6);
                 }} style={{ width: "100%", padding: "5px", background: "rgba(var(--fg),0.04)",
                   border: "1px solid rgba(var(--fg),0.1)", borderRadius: 4,
-                  color: "rgba(var(--fg),0.3)", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>
+                  color: "rgba(var(--fg),0.5)", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>
                   Resetear todos a defecto
                 </button>
               </div>
@@ -2066,7 +2115,7 @@
                         <g transform={"translate(" + midX + "," + (midY - 14) + ")"} style={{ pointerEvents: "none" }}>
                           <rect x={-txt.length * 3.5 - 6} y={-9} width={txt.length * 7 + 12} height={18} rx={3}
                             fill="rgba(var(--panel),0.7)" stroke={kc.line} strokeWidth={0.5} />
-                          <text textAnchor="middle" dy={4} fill={kc.line} fontSize={10} fontFamily="inherit">{txt}</text>
+                          <text textAnchor="middle" dy={4} fill={kindInk(conn.kind)} fontSize={10} fontFamily="inherit">{txt}</text>
                         </g>
                       );
                     })()}
@@ -2116,7 +2165,7 @@
                     {isSel ? (
                       <g onClick={function(e) { e.stopPropagation(); deleteStickyNote(note.id); }} style={{ cursor: "pointer" }}>
                         <circle cx={note.x + nw - 12} cy={note.y + 12} r={8} fill="rgba(255,0,0,0.2)" stroke="rgba(255,80,80,0.5)" strokeWidth={1} />
-                        <text x={note.x + nw - 12} y={note.y + 16} textAnchor="middle" fill="#ff5050" fontSize={11}>x</text>
+                        <text x={note.x + nw - 12} y={note.y + 16} textAnchor="middle" fill="var(--danger-ink)" fontSize={11}>x</text>
                       </g>
                     ) : null}
                     <foreignObject x={note.x + 6} y={note.y + 26} width={nw - 12} height={48}>
@@ -2147,6 +2196,7 @@
               {/* Device Nodes */}
               {devices.filter(isDevVisible).map(function(dev) {
                 var h = nodeHeight(dev, filter);
+                var devInk = theme === "light" ? darkenHex(dev.color, 0.35) : dev.color;
                 var isSel = selected === dev.id;
                 var isMSel = multiSelect.indexOf(dev.id) >= 0;
                 var vPorts = visiblePorts(dev, filter);
@@ -2158,15 +2208,15 @@
                     <rect x={dev.x + 4} y={dev.y + 4} width={NODE_W} height={h} rx={8} fill="rgba(var(--shade),calc(0.4 * var(--shade-k)))" />
                     <rect x={dev.x} y={dev.y} width={NODE_W} height={h} rx={8}
                       fill="rgba(var(--node),0.95)"
-                      stroke={isMSel ? "var(--teal-ink)" : (isSel ? dev.color : "rgba(var(--fg),0.08)")}
+                      stroke={isMSel ? "var(--teal-ink)" : (isSel ? devInk : "rgba(var(--fg),0.08)")}
                       strokeWidth={isMSel ? 2.5 : (isSel ? 2 : 1)} />
                     <rect x={dev.x} y={dev.y} width={NODE_W} height={HEADER_H} rx={8} fill={dev.color + "18"} />
                     <rect x={dev.x} y={dev.y + HEADER_H - 1} width={NODE_W} height={2} fill={dev.color + "33"} />
-                    <text x={dev.x + 12} y={dev.y + 18} fill={dev.color} fontSize={16} fontFamily="inherit">
+                    <text x={dev.x + 12} y={dev.y + 18} fill={devInk} fontSize={16} fontFamily="inherit">
                       {TYPE_ICONS[dev.type] || "●"}
                     </text>
                     <text x={dev.x + 32} y={dev.y + 18} fill="rgb(var(--fg))" fontSize={12} fontWeight={700} fontFamily="inherit">{dev.name}</text>
-                    <text x={dev.x + 32} y={dev.y + 32} fill="rgba(var(--fg),0.3)" fontSize={9} fontFamily="inherit">{dev.type}</text>
+                    <text x={dev.x + 32} y={dev.y + 32} fill="rgba(var(--fg),0.5)" fontSize={9} fontFamily="inherit">{dev.type}</text>
 
                     {/* Note indicator */}
                     {dev.notes ? (
@@ -2184,7 +2234,7 @@
                       <g>
                         <g onClick={function(e) { e.stopPropagation(); deleteDevice(dev.id); }} style={{ cursor: "pointer" }}>
                           <circle cx={dev.x + NODE_W - 14} cy={dev.y + 14} r={9} fill="rgba(255,0,0,0.2)" stroke="rgba(255,80,80,0.5)" strokeWidth={1} />
-                          <text x={dev.x + NODE_W - 14} y={dev.y + 18} textAnchor="middle" fill="#ff5050" fontSize={12}>x</text>
+                          <text x={dev.x + NODE_W - 14} y={dev.y + 18} textAnchor="middle" fill="var(--danger-ink)" fontSize={12}>x</text>
                         </g>
                         <g onClick={function(e) { e.stopPropagation(); setEditingDeviceNote(dev.id); }} style={{ cursor: "pointer" }}>
                           <circle cx={dev.x + NODE_W - 38} cy={dev.y + 14} r={9} fill="rgba(var(--note-rgb),calc(0.15 * var(--note-k)))" stroke="rgba(var(--note-rgb),calc(0.4 * var(--note-k)))" strokeWidth={1} />
@@ -2202,76 +2252,8 @@
                       </g>
                     ) : null}
 
-                    {/* Input ports */}
-                    {inPorts.map(function(port, i) {
-                      var py = dev.y + HEADER_H + PORT_PAD + i * (PORT_H + PORT_PAD);
-                      var kc = KIND_COLORS[port.kind] || KIND_COLORS.audio;
-                      return (
-                        <g key={port.id}
-                          onContextMenu={function(e) { openCtx(e, "port", { devId: dev.id, portId: port.id }); }}
-                          onDoubleClick={function(e) {
-                            e.stopPropagation();
-                            setConnecting(null);
-                            startRenamePort(dev.id, port.id, e.clientX, e.clientY);
-                          }}
-                          onClick={function(e) {
-                            if (e.shiftKey) {
-                              e.stopPropagation();
-                              var fp = focusedPort && focusedPort.devId === dev.id && focusedPort.portId === port.id;
-                              setFocusedPort(fp ? null : { devId: dev.id, portId: port.id });
-                              return;
-                            }
-                            startConnect(dev.id, port.id, e);
-                          }}
-                          onMouseEnter={function(e) {
-                            var rect = svgRef.current.getBoundingClientRect();
-                            setHoveredPort({ devId: dev.id, portId: port.id,
-                              sx: e.clientX - rect.left, sy: e.clientY - rect.top });
-                          }}
-                          onMouseLeave={function() { setHoveredPort(null); }}
-                          style={{ cursor: "pointer" }}>
-                          <circle cx={dev.x} cy={py + PORT_H / 2} r={5}
-                            fill={focusedPort && focusedPort.devId === dev.id && focusedPort.portId === port.id ? "rgb(var(--fg))" : kc.line}
-                            stroke="rgba(var(--shade),calc(0.5 * var(--shade-k)))" strokeWidth={1.5} />
-                          <text x={dev.x + 12} y={py + PORT_H / 2 + 3.5} fill="rgba(var(--fg),0.6)" fontSize={9} fontFamily="inherit">{port.name}</text>
-                        </g>
-                      );
-                    })}
-                    {/* Output ports */}
-                    {outPorts.map(function(port, i) {
-                      var py = dev.y + HEADER_H + PORT_PAD + i * (PORT_H + PORT_PAD);
-                      var kc = KIND_COLORS[port.kind] || KIND_COLORS.audio;
-                      return (
-                        <g key={port.id}
-                          onContextMenu={function(e) { openCtx(e, "port", { devId: dev.id, portId: port.id }); }}
-                          onDoubleClick={function(e) {
-                            e.stopPropagation();
-                            setConnecting(null);
-                            startRenamePort(dev.id, port.id, e.clientX, e.clientY);
-                          }}
-                          onClick={function(e) {
-                            if (e.shiftKey) {
-                              e.stopPropagation();
-                              var fp = focusedPort && focusedPort.devId === dev.id && focusedPort.portId === port.id;
-                              setFocusedPort(fp ? null : { devId: dev.id, portId: port.id });
-                              return;
-                            }
-                            startConnect(dev.id, port.id, e);
-                          }}
-                          onMouseEnter={function(e) {
-                            var rect = svgRef.current.getBoundingClientRect();
-                            setHoveredPort({ devId: dev.id, portId: port.id,
-                              sx: e.clientX - rect.left, sy: e.clientY - rect.top });
-                          }}
-                          onMouseLeave={function() { setHoveredPort(null); }}
-                          style={{ cursor: "pointer" }}>
-                          <circle cx={dev.x + NODE_W} cy={py + PORT_H / 2} r={5}
-                            fill={focusedPort && focusedPort.devId === dev.id && focusedPort.portId === port.id ? "rgb(var(--fg))" : kc.line}
-                            stroke="rgba(var(--shade),calc(0.5 * var(--shade-k)))" strokeWidth={1.5} />
-                          <text x={dev.x + NODE_W - 12} y={py + PORT_H / 2 + 3.5} fill="rgba(var(--fg),0.6)" fontSize={9} fontFamily="inherit" textAnchor="end">{port.name}</text>
-                        </g>
-                      );
-                    })}
+                    {inPorts.map(function(port, i) { return renderPort(dev, port, i, false); })}
+                    {outPorts.map(function(port, i) { return renderPort(dev, port, i, true); })}
                   </g>
                 );
               })}
@@ -2322,7 +2304,7 @@
                   <option value="jam">Solo Jam</option>
                 </select>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ color: "rgba(var(--fg),0.3)", fontSize: 9, fontFamily: "inherit" }}>Grosor</span>
+                  <span style={{ color: "rgba(var(--fg),0.5)", fontSize: 9, fontFamily: "inherit" }}>Grosor</span>
                   <input type="range" min="1" max="8" step="0.5"
                     value={conn.strokeW || globalCableW}
                     onChange={function(e) {
@@ -2333,7 +2315,7 @@
                   <span style={{ color: kc.line, fontSize: 10, fontFamily: "inherit", minWidth: 16 }}>{conn.strokeW || 2}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ color: "rgba(var(--fg),0.3)", fontSize: 9, fontFamily: "inherit" }}>Opacidad</span>
+                  <span style={{ color: "rgba(var(--fg),0.5)", fontSize: 9, fontFamily: "inherit" }}>Opacidad</span>
                   <input type="range" min="0.05" max="1" step="0.05"
                     value={conn.opacity !== undefined ? conn.opacity : globalCableOp}
                     onChange={function(e) {
@@ -2345,7 +2327,7 @@
                 </div>
                 {conn.kind === "midi" ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 8, borderLeft: "1px solid rgba(232,185,49,0.25)" }}>
-                    <span style={{ color: "rgba(var(--fg),0.3)", fontSize: 9 }}>Ch out</span>
+                    <span style={{ color: "rgba(var(--fg),0.5)", fontSize: 9 }}>Ch out</span>
                     <select value={conn.midiChannelOut == null ? "" : String(conn.midiChannelOut)}
                       onChange={function(e) {
                         var raw = e.target.value;
@@ -2358,7 +2340,7 @@
                       <option value="omni">Omni</option>
                       {Array.from({length:16}, function(_,k){ return k+1; }).map(function(n){ return <option key={n} value={String(n)}>{n}</option>; })}
                     </select>
-                    <span style={{ color: "rgba(var(--fg),0.3)", fontSize: 9 }}>Ch in</span>
+                    <span style={{ color: "rgba(var(--fg),0.5)", fontSize: 9 }}>Ch in</span>
                     <select value={conn.midiChannelIn == null ? "" : String(conn.midiChannelIn)}
                       onChange={function(e) {
                         var raw = e.target.value;
@@ -2393,7 +2375,7 @@
                   </div>
                 ) : null}
                 <button onClick={function() { deleteConnection(conn.id); }}
-                  style={btnStyle("rgba(255,0,0,0.15)","rgba(255,80,80,0.3)","#ff5050")}>Borrar</button>
+                  style={btnStyle("rgba(255,0,0,0.15)","rgba(255,80,80,0.3)","var(--danger-ink)")}>Borrar</button>
               </div>
             );
           })() : null}
@@ -2475,7 +2457,7 @@
                           }}
                           onDragEnd={function() { setDragPortIdx(null); }}
                           style={{ display: "grid", gridTemplateColumns: "16px 1fr 70px 72px 26px", gap: 5, marginBottom: 5, alignItems: "center", opacity: isDragging ? 0.4 : 1, cursor: "grab" }}>
-                          <span style={{ color: "rgba(var(--fg),0.25)", fontSize: 14, textAlign: "center", userSelect: "none", cursor: "grab" }}>⋮⋮</span>
+                          <span style={{ color: "rgba(var(--fg),0.5)", fontSize: 14, textAlign: "center", userSelect: "none", cursor: "grab" }}>⋮⋮</span>
                           <input value={port.name}
                             onChange={function(e) {
                               var v = e.target.value; var did = editingPorts; var ii = i;
@@ -2528,7 +2510,7 @@
                                 return Object.assign({}, d, { ports: d.ports.filter(function(p) { return p.id !== pid; }) });
                               }); });
                             }}
-                            style={{ background: "none", border: "none", color: hasConn ? "#ff5050" : "rgba(var(--fg),0.3)", cursor: "pointer", fontSize: 16, padding: 0 }}>x</button>
+                            style={{ background: "none", border: "none", color: hasConn ? "var(--danger-ink)" : "rgba(var(--fg),0.3)", cursor: "pointer", fontSize: 16, padding: 0 }}>x</button>
                         </div>
                       );
                     })}
@@ -2621,7 +2603,7 @@
                         <option value="cv">CV</option><option value="digital">Digital</option>
                       </select>
                       <button onClick={function(e) { var ii = i; setNewPorts(function(ps) { return ps.filter(function(_, j) { return j !== ii; }); }); }}
-                        style={{ background: "none", border: "none", color: "#ff5050", cursor: "pointer", fontSize: 16, padding: 0 }}>x</button>
+                        style={{ background: "none", border: "none", color: "var(--danger-ink)", cursor: "pointer", fontSize: 16, padding: 0 }}>x</button>
                     </div>
                   );
                 })}
@@ -2715,7 +2697,7 @@
                   borderRadius: 12, padding: 22, width: 440, maxHeight: "80vh", display: "flex", flexDirection: "column", gap: 10 }}>
                 <h3 style={{ color: "rgb(var(--fg))", margin: 0, fontSize: 14, fontFamily: "inherit" }}>Versiones Guardadas</h3>
                 {savedSnapshots.length === 0 ? (
-                  <p style={{ color: "rgba(var(--fg),0.3)", fontSize: 12, fontFamily: "inherit", textAlign: "center", padding: 20 }}>
+                  <p style={{ color: "rgba(var(--fg),0.5)", fontSize: 12, fontFamily: "inherit", textAlign: "center", padding: 20 }}>
                     No hay versiones. Usa "Guardar" para crear una.
                   </p>
                 ) : (
@@ -2727,14 +2709,14 @@
                           borderRadius: 6, border: "1px solid rgba(var(--fg),0.06)" }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ color: "rgb(var(--fg))", fontSize: 12, fontFamily: "inherit" }}>{snap.name}</div>
-                            <div style={{ color: "rgba(var(--fg),0.3)", fontSize: 9, fontFamily: "inherit" }}>
+                            <div style={{ color: "rgba(var(--fg),0.5)", fontSize: 9, fontFamily: "inherit" }}>
                               {snap.date} | {snap.data.devices && snap.data.devices.length} devs, {snap.data.connections && snap.data.connections.length} cables
                             </div>
                           </div>
                           <button onClick={function() { loadSnapshot(snap); }}
                             style={btnStyle("rgba(0,206,201,0.15)","rgba(0,206,201,0.3)","var(--teal-ink)")}>Cargar</button>
                           <button onClick={function() { deleteSnapshot(snap.id); }}
-                            style={btnStyle("rgba(255,80,80,0.1)","rgba(255,80,80,0.2)","#ff5050")}>x</button>
+                            style={btnStyle("rgba(255,80,80,0.1)","rgba(255,80,80,0.2)","var(--danger-ink)")}>x</button>
                         </div>
                       );
                     })}
@@ -2764,14 +2746,14 @@
                 background: "rgba(var(--panel),0.97)", border: "1px solid " + portColor + "55",
                 borderRadius: 6, padding: "7px 11px", zIndex: 60, pointerEvents: "none",
                 minWidth: 140, maxWidth: 260, backdropFilter: "blur(8px)" }}>
-                <div style={{ color: portColor, fontSize: 10, fontWeight: 700, fontFamily: "inherit", marginBottom: 3 }}>
+                <div style={{ color: kindInk(port.kind), fontSize: 10, fontWeight: 700, fontFamily: "inherit", marginBottom: 3 }}>
                   {dev.name} / {port.name}
                 </div>
                 <div style={{ color: "rgba(var(--fg),0.35)", fontSize: 9, fontFamily: "inherit", marginBottom: conns.length > 0 ? 5 : 0 }}>
                   {port.kind} | {port.dir}
                 </div>
                 {conns.length === 0 ? (
-                  <div style={{ color: "rgba(var(--fg),0.25)", fontSize: 9, fontFamily: "inherit" }}>Sin conexiones</div>
+                  <div style={{ color: "rgba(var(--fg),0.5)", fontSize: 9, fontFamily: "inherit" }}>Sin conexiones</div>
                 ) : conns.map(function(c, i) {
                   var isFrom = c.from.device === hoveredPort.devId && c.from.port === hoveredPort.portId;
                   var otherDevId = isFrom ? c.to.device : c.from.device;
@@ -2790,7 +2772,7 @@
                   );
                 })}
                 {conns.length > 0 ? (
-                  <div style={{ color: "rgba(var(--fg),0.2)", fontSize: 8, fontFamily: "inherit", marginTop: 4 }}>
+                  <div style={{ color: "rgba(var(--fg),0.5)", fontSize: 8, fontFamily: "inherit", marginTop: 4 }}>
                     Click para resaltar
                   </div>
                 ) : null}
@@ -2810,7 +2792,7 @@
                 <h3 style={{ color: "rgb(var(--fg))", margin: 0, fontSize: 14, fontFamily: "inherit", fontWeight: 600 }}>
                   ★ Mis Layouts
                 </h3>
-                <p style={{ color: "rgba(var(--fg),0.3)", margin: 0, fontSize: 11, fontFamily: "inherit" }}>
+                <p style={{ color: "rgba(var(--fg),0.5)", margin: 0, fontSize: 11, fontFamily: "inherit" }}>
                   Guarda la posicion actual de los modulos. Las conexiones no se tocan.
                 </p>
 
@@ -2836,7 +2818,7 @@
                 {/* List of saved layouts */}
                 <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
                   {userLayouts.length === 0 ? (
-                    <div style={{ color: "rgba(var(--fg),0.2)", fontSize: 12, fontFamily: "inherit",
+                    <div style={{ color: "rgba(var(--fg),0.5)", fontSize: 12, fontFamily: "inherit",
                       textAlign: "center", padding: "20px 0" }}>
                       No hay layouts guardados. Acomoda los modulos como quieras y dale "Guardar actual".
                     </div>
@@ -2849,7 +2831,7 @@
                           <div style={{ color: "rgb(var(--fg))", fontSize: 12, fontFamily: "inherit", fontWeight: 600 }}>
                             {layout.name}
                           </div>
-                          <div style={{ color: "rgba(var(--fg),0.25)", fontSize: 9, fontFamily: "inherit", marginTop: 2 }}>
+                          <div style={{ color: "rgba(var(--fg),0.5)", fontSize: 9, fontFamily: "inherit", marginTop: 2 }}>
                             {layout.date} | {Object.keys(layout.positions).length} modulos
                           </div>
                         </div>
@@ -2862,7 +2844,7 @@
                         <button onClick={function() { deleteUserLayout(layout.id); }}
                           style={{ padding: "5px 8px", background: "rgba(255,80,80,0.1)",
                             border: "1px solid rgba(255,80,80,0.2)", borderRadius: 5,
-                            color: "#ff5050", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+                            color: "var(--danger-ink)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
                           x
                         </button>
                       </div>
@@ -2890,7 +2872,7 @@
           ) : null}
 
           {/* Help */}
-          <div style={{ position: "absolute", bottom: 12, right: 14, color: "rgba(var(--fg),0.18)",
+          <div style={{ position: "absolute", bottom: 12, right: 14, color: "rgba(var(--fg),0.4)",
             fontSize: 9, fontFamily: "inherit", textAlign: "right", lineHeight: 1.6, zIndex: 10 }}>
             Click puerto = conectar | Shift+click puerto = resaltar conexiones | Shift+click nodo / Shift+arrastrar fondo = seleccion multiple | Click derecho = menu | Doble click puerto = renombrar | Ctrl+click cable = multi-cables | Ctrl+Z / Ctrl+Shift+Z = deshacer / rehacer | Ctrl+D = duplicar | Esc = cancelar
           </div>
