@@ -7,8 +7,9 @@ Herramienta visual e interactiva para mapear el ruteo de audio, MIDI, CV y digit
 ## Características
 
 - **Nodos arrastrables** para cada dispositivo de tu estudio
-- **Conexiones visuales** con colores por tipo: Audio (turquesa), MIDI (amarillo), CV (rosa), Digital (azul)
-- **Vistas** Full / Audio / MIDI / CV / Digital: oculta nodos y puertos que no son del tipo (nodos compactos)
+- **Conexiones visuales** con colores por tipo: Audio (turquesa), MIDI (amarillo), CV (rosa), Digital (azul), ADAT (naranja, cable tipo fibra óptica)
+- **Cables ADAT** con modo de canales (8 ch a 44.1/48 kHz o 4 ch S/MUX a 88.2/96 kHz) y quién es clock master
+- **Vistas** Full / Audio / MIDI / CV / Digital / ADAT: oculta nodos y puertos que no son del tipo (nodos compactos)
 - **Filtro de modo** de operación (DAW / Jam / Ambos)
 - **Undo/Redo** (Ctrl+Z / Ctrl+Shift+Z o Ctrl+Y) y botones ↶ ↷
 - **Duplicar** nodos seleccionados con sus cables internos (Ctrl+D o ícono ⧉)
@@ -53,6 +54,8 @@ Solo abre `index.html` en tu navegador (Chrome, Firefox, Edge).
 | Renombrar puerto | Doble click en el puerto / click derecho → Renombrar |
 | CSV de un módulo | Click derecho en nodo → Exportar CSV del módulo |
 | Deshacer / Rehacer | Ctrl+Z / Ctrl+Shift+Z (o Ctrl+Y) |
+| Borrar selección | Delete / Backspace |
+| Cerrar ventanas / deseleccionar | Esc |
 | Editar conexión | Click en el cable |
 
 ## Datos

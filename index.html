@@ -26,6 +26,7 @@
       --audio-ink: #00CEC9;
       --cv-ink: #E84393;
       --digital-ink: #74B9FF;
+      --adat-ink: #FF9F43;
       --danger-ink: #ff5050;
       --note-k: 1;
     }
@@ -49,6 +50,7 @@
       --audio-ink: #00938f;
       --cv-ink: #c2185b;
       --digital-ink: #2f7fd6;
+      --adat-ink: #c0600b;
       --danger-ink: #d63c3c;
       --note-k: 1.6;
     }
@@ -86,6 +88,7 @@
       midi:    { line: "#E8B931", label: "MIDI" },
       cv:      { line: "#E84393", label: "CV" },
       digital: { line: "#74B9FF", label: "Digital" },
+      adat:    { line: "#FF9F43", label: "ADAT" },
     };
 
     const TYPE_ICONS = {
@@ -236,9 +239,9 @@
     { id: "mt-o6", name: "Out 6", dir: "out", kind: "audio" },
     { id: "mt-o7", name: "Out 7", dir: "out", kind: "audio" },
     { id: "mt-o8", name: "Out 8", dir: "out", kind: "audio" },
-    { id: "mt-adatai", name: "ADAT A In", dir: "in", kind: "digital" },
-    { id: "mt-adatbi", name: "ADAT B In", dir: "in", kind: "digital" },
-    { id: "mt-adatbo", name: "ADAT B Out", dir: "out", kind: "digital" },
+    { id: "mt-adatai", name: "ADAT A In", dir: "in", kind: "adat" },
+    { id: "mt-adatbi", name: "ADAT B In", dir: "in", kind: "adat" },
+    { id: "mt-adatbo", name: "ADAT B Out", dir: "out", kind: "adat" },
     { id: "mt-usb", name: "USB/TB", dir: "both", kind: "digital" },
   ]},
   { id: "octopre", name: "OctoPre", type: "preamp", color: "#E84393", x: 1060, y: 500, ports: [
@@ -250,11 +253,11 @@
     { id: "op-6", name: "In 6", dir: "in", kind: "audio" },
     { id: "op-7", name: "In 7", dir: "in", kind: "audio" },
     { id: "op-8", name: "In 8", dir: "in", kind: "audio" },
-    { id: "op-adat", name: "ADAT Out", dir: "out", kind: "digital" },
+    { id: "op-adat", name: "ADAT Out", dir: "out", kind: "adat" },
   ]},
   { id: "optxv2", name: "Optx V2", type: "converter", color: "#74B9FF", x: 1060, y: 780, ports: [
-    { id: "ox-ai", name: "ADAT In", dir: "in", kind: "digital" },
-    { id: "ox-ao", name: "ADAT Out", dir: "out", kind: "digital" },
+    { id: "ox-ai", name: "ADAT In", dir: "in", kind: "adat" },
+    { id: "ox-ao", name: "ADAT Out", dir: "out", kind: "adat" },
     { id: "ox-cv1", name: "CV/Audio 1", dir: "both", kind: "cv" },
     { id: "ox-cv2", name: "CV/Audio 2", dir: "both", kind: "cv" },
     { id: "ox-cv3", name: "CV/Audio 3", dir: "both", kind: "cv" },
@@ -443,6 +446,14 @@
     function kindLabel(k) { return KIND_COLORS[k] ? KIND_COLORS[k].label : (k || ""); }
     function chStr(v) { return v == null ? "" : v === "omni" ? "Omni" : String(v); }
     function mpeStr(c) { return c.mpe ? (c.mpeZone === "upper" ? "Upper" : "Lower") : ""; }
+    // ADAT: 8 canales a 44.1/48 kHz, 4 canales con S/MUX a 88.2/96 kHz; el reloj lo da un extremo
+    function adatStr(c) {
+      if (c.kind !== "adat") return "";
+      var parts = [];
+      if (c.adatMode) parts.push(c.adatMode === "smux" ? "S/MUX 4ch" : "8ch");
+      if (c.adatClock) parts.push(c.adatClock === "from" ? "clock: origen" : "clock: destino");
+      return parts.join(" · ");
+    }
 
     // 11: normaliza datos importados/guardados para que un JSON incompleto no rompa el render
     function normalizeData(d) {
@@ -455,10 +466,18 @@
         });
         return Object.assign({ name: String(dev.id), type: "synth", color: "#888888", x: 0, y: 0 }, dev, { ports: ports });
       });
+      devices.forEach(function(dev) {
+        dev.ports = dev.ports.map(function(p) {
+          return p.kind === "digital" && /adat/i.test(p.name || "") ? Object.assign({}, p, { kind: "adat" }) : p;
+        });
+      });
       var portSet = {};
-      devices.forEach(function(dev) { dev.ports.forEach(function(p) { portSet[dev.id + "|" + p.id] = true; }); });
+      devices.forEach(function(dev) { dev.ports.forEach(function(p) { portSet[dev.id + "|" + p.id] = p; }); });
       var connections = (Array.isArray(d.connections) ? d.connections : []).filter(function(c) {
         return c && c.id && c.from && c.to && portSet[c.from.device + "|" + c.from.port] && portSet[c.to.device + "|" + c.to.port];
+      }).map(function(c) {
+        var src = portSet[c.from.device + "|" + c.from.port];
+        return c.kind === "digital" && src.kind === "adat" ? Object.assign({}, c, { kind: "adat" }) : c;
       });
       var stickyNotes = (Array.isArray(d.stickyNotes) ? d.stickyNotes : []).filter(function(n) { return n && n.id; }).map(function(n) {
         return Object.assign({ x: 0, y: 0, text: "", color: "#FFEAA7", w: 200 }, n);
@@ -1277,7 +1296,7 @@
 
       // ── CSV por modulo: una fila por puerto/conexion ──
       function exportModuleCSV(ids) {
-        var rows = [["Dispositivo", "Puerto", "Direccion", "Senal", "Sentido", "Conectado a", "Puerto remoto", "Modo", "Canal MIDI out", "Canal MIDI in", "MPE", "Etiqueta"]];
+        var rows = [["Dispositivo", "Puerto", "Direccion", "Senal", "Sentido", "Conectado a", "Puerto remoto", "Modo", "Canal MIDI out", "Canal MIDI in", "MPE", "ADAT", "Etiqueta"]];
         ids.forEach(function(did) {
           var d = devById[did];
           if (!d) return;
@@ -1286,7 +1305,7 @@
               return (c.from.device === d.id && c.from.port === p.id) || (c.to.device === d.id && c.to.port === p.id);
             });
             var base = [d.name, p.name, DIR_LABEL[p.dir] || p.dir, kindLabel(p.kind)];
-            if (cs.length === 0) { rows.push(base.concat(["", "", "", "", "", "", "", ""])); return; }
+            if (cs.length === 0) { rows.push(base.concat(["", "", "", "", "", "", "", "", ""])); return; }
             cs.forEach(function(c) {
               var isFrom = c.from.device === d.id && c.from.port === p.id;
               var other = isFrom ? c.to : c.from;
@@ -1298,6 +1317,7 @@
                 c.kind === "midi" ? chStr(c.midiChannelOut) : "",
                 c.kind === "midi" ? chStr(c.midiChannelIn) : "",
                 mpeStr(c),
+                adatStr(c),
                 c.label || "",
               ]));
             });
@@ -1319,7 +1339,7 @@
           return p ? p.name : "?";
         }
 
-        var patch = [["Origen", "Puerto origen", "Destino", "Puerto destino", "Tipo", "Modo", "Canal MIDI out", "Canal MIDI in", "MPE", "Etiqueta"]];
+        var patch = [["Origen", "Puerto origen", "Destino", "Puerto destino", "Tipo", "Modo", "Canal MIDI out", "Canal MIDI in", "MPE", "ADAT", "Etiqueta"]];
         connections.forEach(function(c) {
           var fd = devById[c.from.device], td = devById[c.to.device];
           patch.push([
@@ -1329,6 +1349,7 @@
             c.kind === "midi" ? chStr(c.midiChannelOut) : "",
             c.kind === "midi" ? chStr(c.midiChannelIn) : "",
             mpeStr(c),
+            adatStr(c),
             c.label || "",
           ]);
         });
@@ -1384,7 +1405,7 @@
               onChange={function(e) { var v = e.target.value; setBulk(function(b) { return Object.assign({}, b, { kind: v }); }); }}
               style={selectSt}>
               <option value="audio">Audio</option><option value="midi">MIDI</option>
-              <option value="cv">CV</option><option value="digital">Digital</option>
+              <option value="cv">CV</option><option value="digital">Digital</option><option value="adat">ADAT</option>
             </select>
             <button onClick={onAdd}
               style={{ padding: "5px 10px", background: "rgba(0,206,201,0.12)", border: "1px solid rgba(0,206,201,0.4)",
@@ -1775,7 +1796,7 @@
               <span style={{ color: "var(--teal-ink)" }}>◈</span> STUDIO ROUTER
             </span>
             <div style={{ width: 1, height: 18, background: "rgba(var(--fg),0.1)" }} />
-            {["all","audio","midi","cv","digital"].map(function(f) {
+            {["all","audio","midi","cv","digital","adat"].map(function(f) {
               var kc = KIND_COLORS[f];
               var active = filter === f;
               return (
@@ -2092,6 +2113,10 @@
                       strokeDasharray={dashed} strokeOpacity={strokeOp}
                       filter={isMSel || isFocused || isSel || isHov ? "url(#glow-" + (conn.kind || "audio") + ")" : undefined}
                       style={{ transition: "stroke-opacity 0.15s, stroke-width 0.15s" }} />
+                    {conn.kind === "adat" ? (
+                      <path d={path} fill="none" stroke="var(--bg)" strokeWidth={Math.max(1, strokeW * 0.4)}
+                        strokeOpacity={isDimmed ? 0.05 : 0.9} strokeDasharray={dashed} style={{ pointerEvents: "none" }} />
+                    ) : null}
                     <path d={path} fill="none" stroke="transparent" strokeWidth={18} />
                     {(function() {
                       var parts = [];
@@ -2107,6 +2132,10 @@
                           else if (coStr) parts.push(coStr);
                           else if (ciStr) parts.push("Ch " + ciStr);
                         }
+                      }
+                      if (conn.kind === "adat") {
+                        if (conn.adatMode) parts.push(conn.adatMode === "smux" ? "S/MUX 4ch" : "8ch");
+                        if (conn.adatClock) parts.push(conn.adatClock === "from" ? "⏱→" : "→⏱");
                       }
                       if (conn.label) parts.push(conn.label);
                       var txt = parts.join(" · ");
@@ -2284,7 +2313,8 @@
                 background: "rgba(var(--panel),0.97)", border: "1px solid " + kc.line + "44",
                 borderRadius: 8, padding: "10px 16px", display: "flex", alignItems: "center",
                 gap: 10, backdropFilter: "blur(12px)", zIndex: 30 }}>
-                <span style={{ color: kc.line, fontSize: 11 }}>
+                <span title={(fromDev ? fromDev.name : "?") + ":" + (fromPort ? fromPort.name : "?") + " → " + (toDev ? toDev.name : "?") + ":" + (toPort ? toPort.name : "?")}
+                  style={{ color: kindInk(conn.kind), fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 260 }}>
                   {fromDev && fromDev.name}:{fromPort && fromPort.name} &rarr; {toDev && toDev.name}:{toPort && toPort.name}
                 </span>
                 <input placeholder="Etiqueta..." value={conn.label || ""}
@@ -2372,6 +2402,32 @@
                         <option value="upper">Upper ↑</option>
                       </select>
                     ) : null}
+                  </div>
+                ) : null}
+                {conn.kind === "adat" ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 8, borderLeft: "1px solid rgba(255,159,67,0.3)" }}>
+                    <span style={{ color: "rgba(var(--fg),0.5)", fontSize: 9 }}>Canales</span>
+                    <select value={conn.adatMode || ""}
+                      onChange={function(e) {
+                        var v = e.target.value || null; var cid = conn.id;
+                        setConnections(function(cs) { return cs.map(function(c) { return c.id === cid ? Object.assign({}, c, { adatMode: v }) : c; }); });
+                      }}
+                      style={Object.assign({}, selectSt, { width: 140 })}>
+                      <option value="">—</option>
+                      <option value="8">8 ch · 44.1/48 kHz</option>
+                      <option value="smux">4 ch · S/MUX 88.2/96 kHz</option>
+                    </select>
+                    <span style={{ color: "rgba(var(--fg),0.5)", fontSize: 9 }}>Clock</span>
+                    <select value={conn.adatClock || ""}
+                      onChange={function(e) {
+                        var v = e.target.value || null; var cid = conn.id;
+                        setConnections(function(cs) { return cs.map(function(c) { return c.id === cid ? Object.assign({}, c, { adatClock: v }) : c; }); });
+                      }}
+                      style={Object.assign({}, selectSt, { width: 120 })}>
+                      <option value="">—</option>
+                      <option value="from">Origen es master</option>
+                      <option value="to">Destino es master</option>
+                    </select>
                   </div>
                 ) : null}
                 <button onClick={function() { deleteConnection(conn.id); }}
@@ -2496,6 +2552,7 @@
                             <option value="midi">MIDI</option>
                             <option value="cv">CV</option>
                             <option value="digital">Digital</option>
+                            <option value="adat">ADAT</option>
                           </select>
                           <button
                             onClick={function(e) {
@@ -2600,7 +2657,7 @@
                         }}
                         style={selectSt}>
                         <option value="audio">Audio</option><option value="midi">MIDI</option>
-                        <option value="cv">CV</option><option value="digital">Digital</option>
+                        <option value="cv">CV</option><option value="digital">Digital</option><option value="adat">ADAT</option>
                       </select>
                       <button onClick={function(e) { var ii = i; setNewPorts(function(ps) { return ps.filter(function(_, j) { return j !== ii; }); }); }}
                         style={{ background: "none", border: "none", color: "var(--danger-ink)", cursor: "pointer", fontSize: 16, padding: 0 }}>x</button>
