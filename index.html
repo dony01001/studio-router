@@ -449,6 +449,7 @@
       var [ctxMenu, setCtxMenu] = useState(null);   // {kind: "bg"|"dev"|"conn"|"note", id, sx, sy, world}
       var [marquee, setMarquee] = useState(null);   // {x0, y0, x1, y1, base: [ids]} en coords de mundo
       var [addPos, setAddPos] = useState(null);     // posicion para "+ Dispositivo aqui"
+      var [renamingPort, setRenamingPort] = useState(null); // {devId, portId, sx, sy, value}
 
       var svgRef = useRef(null);
       var fileInputRef = useRef(null);
@@ -832,6 +833,10 @@
           setSelected(null); setMultiSelect([]);
         }
         if (kind === "note") setSelectedNote(id);
+        if (kind === "port" && multiSelect.indexOf(id.devId) < 0) {
+          setSelected(id.devId); setMultiSelect([]);
+          setSelectedConn(null); setMultiSelectConn([]);
+        }
         setShowLayouts(false);
         setShowCableStyle(false);
         setCtxMenu({ kind: kind, id: id, sx: e.clientX, sy: e.clientY, world: world });
@@ -876,6 +881,8 @@
             items.push({ label: "Duplicar seleccion", icon: "⧉", hint: "Ctrl+D", run: duplicateSelection });
           }
           items.push({ label: "Desconectar todo (" + nConn + ")", icon: "✂", disabled: nConn === 0, run: function() { disconnectDevices(ids); } });
+          items.push({ label: multi ? "Exportar CSV (" + ids.length + " modulos)" : "Exportar CSV del modulo", icon: "⇩",
+            run: function() { exportModuleCSV(ids); } });
           items.push({ sep: true });
           items.push({ label: multi ? "Borrar " + ids.length + " dispositivos" : "Borrar dispositivo", icon: "×", danger: true,
             run: function() { if (multi) deleteMultiple(); else deleteDevice(m.id); } });
@@ -903,6 +910,34 @@
           items.push({ sep: true });
           items.push({ label: multiC ? "Borrar " + cids.length + " cables" : "Borrar cable", icon: "×", danger: true,
             run: function() { if (multiC) deleteMultipleConnections(); else deleteConnection(m.id); } });
+        } else if (m.kind === "port") {
+          var pdev = devices.find(function(d) { return d.id === m.id.devId; });
+          var pport = pdev && pdev.ports.find(function(pp) { return pp.id === m.id.portId; });
+          if (!pport) return items;
+          var portConns = connections.filter(function(c) {
+            return (c.from.device === pdev.id && c.from.port === pport.id) || (c.to.device === pdev.id && c.to.port === pport.id);
+          });
+          items.push({ header: pdev.name + " / " + pport.name });
+          items.push({ label: "Renombrar puerto", icon: "✎", hint: "Doble click", run: function() {
+            startRenamePort(pdev.id, pport.id, m.sx, m.sy);
+          } });
+          items.push({ label: "Resaltar conexiones", icon: "◉", disabled: portConns.length === 0, run: function() {
+            setFocusedPort({ devId: pdev.id, portId: pport.id });
+          } });
+          items.push({ label: "Desconectar puerto (" + portConns.length + ")", icon: "✂", disabled: portConns.length === 0, run: function() {
+            var cids = portConns.map(function(c) { return c.id; });
+            setConnections(function(cs) { return cs.filter(function(c) { return cids.indexOf(c.id) < 0; }); });
+          } });
+          items.push({ sep: true });
+          items.push({ label: "Borrar puerto", icon: "×", danger: true, run: function() {
+            var did = pdev.id, pid = pport.id;
+            setConnections(function(cs) {
+              return cs.filter(function(c) { return !((c.from.device === did && c.from.port === pid) || (c.to.device === did && c.to.port === pid)); });
+            });
+            setDevices(function(ds) { return ds.map(function(d) {
+              return d.id === did ? Object.assign({}, d, { ports: d.ports.filter(function(pp) { return pp.id !== pid; }) }) : d;
+            }); });
+          } });
         } else if (m.kind === "note") {
           items.push({ header: "Nota" });
           items.push({ label: "Borrar nota", icon: "×", danger: true, run: function() { deleteStickyNote(m.id); } });
@@ -961,6 +996,99 @@
             })}
           </div>
         );
+      }
+
+      // ── Renombrar puerto individual ──
+      function startRenamePort(devId, portId, sx, sy) {
+        var dev = devices.find(function(d) { return d.id === devId; });
+        var port = dev && dev.ports.find(function(p) { return p.id === portId; });
+        if (!port) return;
+        setCtxMenu(null);
+        setRenamingPort({ devId: devId, portId: portId, sx: sx, sy: sy, value: port.name });
+      }
+
+      function commitRenamePort() {
+        var r = renamingPort;
+        if (!r) return;
+        setRenamingPort(null);
+        var name = r.value.trim();
+        if (!name) return;
+        setDevices(function(ds) { return ds.map(function(d) {
+          if (d.id !== r.devId) return d;
+          var changed = false;
+          var np = d.ports.map(function(p) {
+            if (p.id !== r.portId || p.name === name) return p;
+            changed = true;
+            return Object.assign({}, p, { name: name });
+          });
+          return changed ? Object.assign({}, d, { ports: np }) : d;
+        }); });
+      }
+
+      function renderRenamePort() {
+        if (!renamingPort) return null;
+        var left = Math.max(8, Math.min(renamingPort.sx, window.innerWidth - 230));
+        var top = Math.max(8, Math.min(renamingPort.sy, window.innerHeight - 50));
+        return (
+          <div onPointerDown={function(e) { e.stopPropagation(); }}
+            style={{ position: "fixed", left: left, top: top, zIndex: 210, display: "flex", gap: 5,
+              background: "rgba(14,14,24,0.98)", border: "1px solid rgba(0,206,201,0.4)", borderRadius: 6,
+              padding: 5, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+            <input autoFocus value={renamingPort.value}
+              onFocus={function(e) { e.target.select(); }}
+              onChange={function(e) { var v = e.target.value; setRenamingPort(function(r) { return r ? Object.assign({}, r, { value: v }) : r; }); }}
+              onKeyDown={function(e) {
+                if (e.key === "Enter") commitRenamePort();
+                else if (e.key === "Escape") setRenamingPort(null);
+              }}
+              onBlur={commitRenamePort}
+              style={Object.assign({}, inputSt, { width: 170 })} />
+            <button onMouseDown={function(e) { e.preventDefault(); }} onClick={commitRenamePort}
+              style={btnStyle("rgba(0,206,201,0.15)", "rgba(0,206,201,0.4)", "#00CEC9")}>OK</button>
+          </div>
+        );
+      }
+
+      // ── CSV por modulo: una fila por puerto/conexion ──
+      function exportModuleCSV(ids) {
+        var devById = {};
+        devices.forEach(function(d) { devById[d.id] = d; });
+        function chStr(v) { return v == null ? "" : v === "omni" ? "Omni" : String(v); }
+        var modeLabel = { all: "Ambos", daw: "DAW", jam: "Jam" };
+        var dirLabel = { in: "In", out: "Out", both: "Both" };
+        var kindLabel = function(k) { return KIND_COLORS[k] ? KIND_COLORS[k].label : (k || ""); };
+        var rows = [["Dispositivo", "Puerto", "Direccion", "Senal", "Sentido", "Conectado a", "Puerto remoto", "Modo", "Canal MIDI out", "Canal MIDI in", "MPE", "Etiqueta"]];
+        ids.forEach(function(did) {
+          var d = devById[did];
+          if (!d) return;
+          d.ports.forEach(function(p) {
+            var cs = connections.filter(function(c) {
+              return (c.from.device === d.id && c.from.port === p.id) || (c.to.device === d.id && c.to.port === p.id);
+            });
+            var base = [d.name, p.name, dirLabel[p.dir] || p.dir, kindLabel(p.kind)];
+            if (cs.length === 0) { rows.push(base.concat(["", "", "", "", "", "", "", ""])); return; }
+            cs.forEach(function(c) {
+              var isFrom = c.from.device === d.id && c.from.port === p.id;
+              var other = isFrom ? c.to : c.from;
+              var od = devById[other.device];
+              var op = od && od.ports.find(function(pp) { return pp.id === other.port; });
+              rows.push(base.concat([
+                isFrom ? "→" : "←", od ? od.name : "?", op ? op.name : "?",
+                modeLabel[c.mode || "all"] || c.mode,
+                c.kind === "midi" ? chStr(c.midiChannelOut) : "",
+                c.kind === "midi" ? chStr(c.midiChannelIn) : "",
+                c.mpe ? (c.mpeZone === "upper" ? "Upper" : "Lower") : "",
+                c.label || "",
+              ]));
+            });
+          });
+        });
+        var date = new Date().toISOString().slice(0, 10);
+        var slug = ids.length === 1 && devById[ids[0]]
+          ? devById[ids[0]].name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "modulo"
+          : ids.length + "-modulos";
+        downloadText("studio-router-" + slug + "-" + date + ".csv", toCSV(rows));
+        showToast("CSV: " + (rows.length - 1) + " filas");
       }
 
       function exportCSV() {
@@ -1892,6 +2020,12 @@
                       var kc = KIND_COLORS[port.kind] || KIND_COLORS.audio;
                       return (
                         <g key={port.id}
+                          onContextMenu={function(e) { openCtx(e, "port", { devId: dev.id, portId: port.id }); }}
+                          onDoubleClick={function(e) {
+                            e.stopPropagation();
+                            setConnecting(null);
+                            startRenamePort(dev.id, port.id, e.clientX, e.clientY);
+                          }}
                           onClick={function(e) {
                             if (e.shiftKey) {
                               e.stopPropagation();
@@ -1921,6 +2055,12 @@
                       var kc = KIND_COLORS[port.kind] || KIND_COLORS.audio;
                       return (
                         <g key={port.id}
+                          onContextMenu={function(e) { openCtx(e, "port", { devId: dev.id, portId: port.id }); }}
+                          onDoubleClick={function(e) {
+                            e.stopPropagation();
+                            setConnecting(null);
+                            startRenamePort(dev.id, port.id, e.clientX, e.clientY);
+                          }}
                           onClick={function(e) {
                             if (e.shiftKey) {
                               e.stopPropagation();
@@ -1958,6 +2098,7 @@
           </svg>
 
           {renderCtxMenu()}
+          {renderRenamePort()}
 
           {/* Connection editor */}
           {selectedConn ? (function() {
@@ -2560,7 +2701,7 @@
           {/* Help */}
           <div style={{ position: "absolute", bottom: 12, right: 14, color: "rgba(255,255,255,0.18)",
             fontSize: 9, fontFamily: "inherit", textAlign: "right", lineHeight: 1.6, zIndex: 10 }}>
-            Click puerto = conectar | Shift+click puerto = resaltar conexiones | Shift+click nodo / Shift+arrastrar fondo = seleccion multiple | Click derecho = menu | Ctrl+click cable = multi-cables | Ctrl+Z / Ctrl+Shift+Z = deshacer / rehacer | Ctrl+D = duplicar | Esc = cancelar
+            Click puerto = conectar | Shift+click puerto = resaltar conexiones | Shift+click nodo / Shift+arrastrar fondo = seleccion multiple | Click derecho = menu | Doble click puerto = renombrar | Ctrl+click cable = multi-cables | Ctrl+Z / Ctrl+Shift+Z = deshacer / rehacer | Ctrl+D = duplicar | Esc = cancelar
           </div>
         </div>
       );

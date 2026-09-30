@@ -48,7 +48,9 @@ Solo abre `index.html` en tu navegador (Chrome, Firefox, Edge).
 | Duplicar nodo(s) | Ctrl+D / ícono ⧉ (turquesa) |
 | Selección con caja | Shift + arrastrar en el fondo (suma a la selección) |
 | Seleccionar todo | Ctrl+A |
-| Menú contextual | Click derecho en nodo, cable, nota o fondo |
+| Menú contextual | Click derecho en nodo, puerto, cable, nota o fondo |
+| Renombrar puerto | Doble click en el puerto / click derecho → Renombrar |
+| CSV de un módulo | Click derecho en nodo → Exportar CSV del módulo |
 | Deshacer / Rehacer | Ctrl+Z / Ctrl+Shift+Z (o Ctrl+Y) |
 | Editar conexión | Click en el cable |
 
