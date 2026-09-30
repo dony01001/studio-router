@@ -28,6 +28,8 @@
       --digital-ink: #74B9FF;
       --adat-ink: #B98CFF;
       --danger-ink: #ff5050;
+      --flow-in: #55EFC4;
+      --flow-out: #FF7675;
       --note-k: 1;
     }
     :root[data-theme="light"] {
@@ -52,6 +54,8 @@
       --digital-ink: #2f7fd6;
       --adat-ink: #7440d6;
       --danger-ink: #d63c3c;
+      --flow-in: #00a37a;
+      --flow-out: #d64545;
       --note-k: 1.6;
     }
     body { overflow: hidden; background: var(--bg); }
@@ -399,10 +403,17 @@
 
     // ─── HELPERS ───
     // Puertos visibles segun la vista activa ("all" = Full)
-    function visiblePorts(dev, kind) {
-      if (!kind || kind === "all") return dev.ports;
-      return dev.ports.filter(function(p) { return p.kind === kind; });
+    // Vista activa: {kinds: [] (vacio = todos), dir: null | "in" | "out"}. Los puertos I/O cuentan como ambos.
+    var FULL_VIEW = { kinds: [], dir: null };
+    function viewIsFull(view) { return !view || (view.kinds.length === 0 && !view.dir); }
+    function kindOk(p, view) { return !view || view.kinds.length === 0 || view.kinds.indexOf(p.kind) >= 0; }
+    function dirOk(p, view) { return !view || !view.dir || p.dir === view.dir || p.dir === "both"; }
+    function visiblePorts(dev, view) {
+      if (viewIsFull(view)) return dev.ports;
+      return dev.ports.filter(function(p) { return kindOk(p, view) && dirOk(p, view); });
     }
+
+    var DEFAULT_PAGES = [{ id: "p1", name: "Principal" }];
 
     // Filas de puertos: entradas y salidas comparten filas; los I/O (bidireccionales) van en filas propias al fondo
     function portRows(ports) {
@@ -520,7 +531,15 @@
       var stickyNotes = (Array.isArray(d.stickyNotes) ? d.stickyNotes : []).filter(function(n) { return n && n.id; }).map(function(n) {
         return Object.assign({ x: 0, y: 0, text: "", color: "#FFEAA7", w: 200 }, n);
       });
-      return { devices: devices, connections: connections, stickyNotes: stickyNotes };
+      var pages = (Array.isArray(d.pages) ? d.pages : []).filter(function(pg) { return pg && pg.id; }).map(function(pg) {
+        return { id: pg.id, name: pg.name || pg.id };
+      });
+      if (pages.length === 0) pages = DEFAULT_PAGES;
+      devices.forEach(function(dev) {
+        if (dev.pages && !Array.isArray(dev.pages)) delete dev.pages;
+        if (dev.pages) dev.pages = dev.pages.filter(function(pg) { return pg && pg.id; });
+      });
+      return { devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages };
     }
 
     function downloadText(filename, text, type) {
@@ -555,8 +574,11 @@
       var [isPanning, setIsPanning] = useState(false);
       var [panStart, setPanStart] = useState(null);
       var [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-      var [filter, setFilter] = useState("all");
+      var [filter, setFilter] = useState(FULL_VIEW);
       var [modeFilter, setModeFilter] = useState("all");
+      var [pages, setPages] = useState(DEFAULT_PAGES);   // paginas globales de cables (en historial)
+      var [curPage, setCurPage] = useState("p1");
+      var [modPage, setModPage] = useState({});          // pagina activa por modulo: {devId: pageId}
       var [showAdd, setShowAdd] = useState(false);
       var [newDevice, setNewDevice] = useState({ name: "", type: "synth", color: "#00B894" });
       var [newPorts, setNewPorts] = useState([]);
@@ -623,6 +645,9 @@
             setDevices(nd.devices.length > 0 || Array.isArray(d.devices) ? nd.devices : DEFAULT_DEVICES);
             setConnections(nd.connections);
             setStickyNotes(nd.stickyNotes);
+            setPages(nd.pages);
+            if (d.curPage) setCurPage(d.curPage);
+            if (d.modPage && typeof d.modPage === "object") setModPage(d.modPage);
             if (d.pan) setPan(d.pan);
             if (d.zoom) setZoom(d.zoom);
             hist.current.ready = true;
@@ -645,7 +670,7 @@
       // ── Registrar historial ──
       useEffect(function() {
         var h = hist.current;
-        var cur = { devices: devices, connections: connections, stickyNotes: stickyNotes };
+        var cur = { devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages };
         if (!h.ready) {
           if (devices.length > 0) h.ready = true;
           h.prev = cur;
@@ -662,7 +687,7 @@
         clearTimeout(h.timer);
         h.timer = setTimeout(function() { h.open = false; }, 500);
         h.prev = cur;
-      }, [devices, connections, stickyNotes]);
+      }, [devices, connections, stickyNotes, pages]);
 
       // Cierra la rafaga actual: la siguiente mutacion sera un paso de undo propio (12)
       function histBreak() {
@@ -680,11 +705,12 @@
         stopAnimation();
         var h = hist.current;
         var same = target.devices === h.prev.devices && target.connections === h.prev.connections &&
-          target.stickyNotes === h.prev.stickyNotes;
+          target.stickyNotes === h.prev.stickyNotes && target.pages === h.prev.pages;
         if (!same) h.skip = true;
         setDevices(target.devices);
         setConnections(target.connections);
         setStickyNotes(target.stickyNotes);
+        setPages(target.pages || DEFAULT_PAGES);
         setSelected(null); setMultiSelect([]);
         setSelectedConn(null); setMultiSelectConn([]);
         setConnecting(null);
@@ -741,6 +767,13 @@
         }
         if (typing || modalOpen) return;
         if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSelection(); return; }
+        if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.ctrlKey && !e.metaKey) {
+          var delta = e.key === "ArrowLeft" ? -1 : 1;
+          // Con un modulo con paginas seleccionado, navega sus paginas; si no, las paginas globales
+          if (selected && gotoModPage(selected, delta)) { e.preventDefault(); return; }
+          if (pages.length > 1) { e.preventDefault(); gotoPage(delta); }
+          return;
+        }
         if (!(e.ctrlKey || e.metaKey)) return;
         var k = e.key.toLowerCase();
         if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
@@ -791,10 +824,11 @@
       }
       useEffect(function() {
         if (!loaded.current || !hist.current.ready) return;
-        savePayload.current = { devices: devices, connections: connections, stickyNotes: stickyNotes, pan: pan, zoom: zoom };
+        savePayload.current = { devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages,
+          curPage: curPage, modPage: modPage, pan: pan, zoom: zoom };
         var t = setTimeout(flushSave, 300);
         return function() { clearTimeout(t); };
-      }, [devices, connections, stickyNotes, pan, zoom]);
+      }, [devices, connections, stickyNotes, pages, curPage, modPage, pan, zoom]);
       useEffect(function() {
         window.addEventListener("beforeunload", flushSave);
         return function() { window.removeEventListener("beforeunload", flushSave); };
@@ -964,8 +998,13 @@
             var tgtPort = devices.find(function(d) { return d.id === devId; });
             tgtPort = tgtPort && tgtPort.ports.find(function(p) { return p.id === portId; });
             var dup = connections.some(function(c) {
-              return c.from.device === connecting.devId && c.from.port === connecting.portId &&
+              return connPageOk(c) && c.from.device === connecting.devId && c.from.port === connecting.portId &&
                 c.to.device === devId && c.to.port === portId;
+            });
+            var mpage = null;
+            [connecting.devId, devId].forEach(function(did) {
+              var mp = curModPage(devById[did]);
+              if (mp) { mpage = mpage || {}; mpage[did] = mp; }
             });
             if (dup) showToast("Ese cable ya existe");
             if (srcPort && tgtPort && !dup) {
@@ -975,7 +1014,7 @@
                   id: "c-" + Date.now(),
                   from: { device: connecting.devId, port: connecting.portId },
                   to: { device: devId, port: portId },
-                  kind: srcPort.kind, label: "", mode: "all",
+                  kind: srcPort.kind, label: "", mode: "all", page: curPageId(), mpage: mpage || undefined,
                 }]);
               });
             }
@@ -1039,6 +1078,7 @@
         }).map(function(c, i) {
           return Object.assign({}, c, {
             id: "c-" + ts + "-" + i,
+            mpage: c.mpage ? Object.keys(c.mpage).reduce(function(acc, k) { acc[devMap[k] || k] = c.mpage[k]; return acc; }, {}) : c.mpage,
             from: { device: devMap[c.from.device], port: portMap[c.from.device + "|" + c.from.port] },
             to: { device: devMap[c.to.device], port: portMap[c.to.device + "|" + c.to.port] },
           });
@@ -1084,10 +1124,167 @@
         setCtxMenu({ kind: kind, id: id, sx: e.clientX, sy: e.clientY, world: world });
       }
 
+      // Solo la pagina visible: los cables de otras paginas no se tocan
       function disconnectDevices(ids) {
         setConnections(function(cs) {
-          return cs.filter(function(c) { return ids.indexOf(c.from.device) < 0 && ids.indexOf(c.to.device) < 0; });
+          return cs.filter(function(c) {
+            return !connPageOk(c) || (ids.indexOf(c.from.device) < 0 && ids.indexOf(c.to.device) < 0);
+          });
         });
+      }
+
+      // ── Paginas globales ──
+      function curPageId() {
+        return pages.some(function(pg) { return pg.id === curPage; }) ? curPage : pages[0].id;
+      }
+
+      // Pagina activa de un modulo (null si el modulo no tiene paginas propias)
+      function curModPage(dev) {
+        if (!dev || !dev.pages || dev.pages.length === 0) return null;
+        var id = modPage[dev.id];
+        return dev.pages.some(function(pg) { return pg.id === id; }) ? id : dev.pages[0].id;
+      }
+
+      function connPageOf(c, dev) {
+        return (c.mpage && c.mpage[dev.id]) || dev.pages[0].id;
+      }
+
+      // Un cable se ve si pertenece a la pagina global actual y a la pagina activa de cada modulo con paginas
+      function connPageOk(c) {
+        if ((c.page || pages[0].id) !== curPageId()) return false;
+        var ends = [c.from.device, c.to.device];
+        for (var i = 0; i < 2; i++) {
+          var d = devById[ends[i]];
+          if (d && d.pages && d.pages.length > 0 && connPageOf(c, d) !== curModPage(d)) return false;
+        }
+        return true;
+      }
+
+      function pageLabel(c) {
+        var pg = pages.find(function(x) { return x.id === (c.page || pages[0].id); });
+        var parts = [pg ? pg.name : "?"];
+        [c.from.device, c.to.device].forEach(function(did) {
+          var d = devById[did];
+          if (d && d.pages && d.pages.length > 1) {
+            var mp = d.pages.find(function(x) { return x.id === connPageOf(c, d); });
+            parts.push(d.name + ": " + (mp ? mp.name : "?"));
+          }
+        });
+        return parts.join(" | ");
+      }
+
+      function gotoPage(delta) {
+        if (pages.length < 2) return;
+        var i = pages.findIndex(function(pg) { return pg.id === curPageId(); });
+        var next = pages[(i + delta + pages.length) % pages.length];
+        setCurPage(next.id);
+        setSelectedConn(null); setMultiSelectConn([]); setFocusedPort(null);
+        showToast("Pagina: " + next.name);
+      }
+
+      function addPage() {
+        var name = window.prompt("Nombre de la nueva pagina de cables:", "Pagina " + (pages.length + 1));
+        if (name === null) return;
+        histBreak();
+        var pg = { id: "pg-" + Date.now(), name: name.trim() || "Pagina " + (pages.length + 1) };
+        setPages(function(ps) { return ps.concat([pg]); });
+        setCurPage(pg.id);
+        showToast("Pagina creada: " + pg.name);
+      }
+
+      function renamePage() {
+        var id = curPageId();
+        var pg = pages.find(function(x) { return x.id === id; });
+        var name = window.prompt("Renombrar pagina:", pg.name);
+        if (name === null || !name.trim()) return;
+        histBreak();
+        setPages(function(ps) { return ps.map(function(x) { return x.id === id ? Object.assign({}, x, { name: name.trim() }) : x; }); });
+      }
+
+      function deletePage() {
+        if (pages.length < 2) { showToast("Debe quedar al menos una pagina"); return; }
+        var id = curPageId();
+        var n = connections.filter(function(c) { return (c.page || pages[0].id) === id; }).length;
+        var pg = pages.find(function(x) { return x.id === id; });
+        if (!window.confirm("Borrar la pagina \"" + pg.name + "\" y sus " + n + " cables?")) return;
+        histBreak();
+        var rest = pages.filter(function(x) { return x.id !== id; });
+        // Los cables sin pagina explicita pertenecen a la primera; al borrarla se van con ella
+        setConnections(function(cs) {
+          return cs.filter(function(c) { return (c.page || pages[0].id) !== id; });
+        });
+        setPages(rest);
+        setCurPage(rest[0].id);
+      }
+
+      // ── Paginas por modulo ──
+      function addModPage(devId) {
+        var dev = devById[devId];
+        if (!dev) return;
+        var count = dev.pages && dev.pages.length ? dev.pages.length : 1;
+        var name = window.prompt("Nombre de la nueva pagina de " + dev.name + ":", "Pagina " + (count + 1));
+        if (name === null) return;
+        histBreak();
+        var ts = Date.now();
+        var pg = { id: "mp-" + ts, name: name.trim() || "Pagina " + (count + 1) };
+        setDevices(function(ds) { return ds.map(function(d) {
+          if (d.id !== devId) return d;
+          var base = d.pages && d.pages.length ? d.pages : [{ id: "mp1", name: "Pagina 1" }];
+          return Object.assign({}, d, { pages: base.concat([pg]) });
+        }); });
+        setModPage(function(m) { var n = Object.assign({}, m); n[devId] = pg.id; return n; });
+        showToast(dev.name + ": " + pg.name);
+      }
+
+      function gotoModPage(devId, delta) {
+        var dev = devById[devId];
+        if (!dev || !dev.pages || dev.pages.length < 2) return false;
+        var cur = curModPage(dev);
+        var i = dev.pages.findIndex(function(pg) { return pg.id === cur; });
+        var next = dev.pages[(i + delta + dev.pages.length) % dev.pages.length];
+        setModPage(function(m) { var n = Object.assign({}, m); n[devId] = next.id; return n; });
+        setSelectedConn(null); setMultiSelectConn([]);
+        return true;
+      }
+
+      function renameModPage(devId) {
+        var dev = devById[devId];
+        var id = curModPage(dev);
+        var pg = dev.pages.find(function(x) { return x.id === id; });
+        var name = window.prompt("Renombrar pagina de " + dev.name + ":", pg.name);
+        if (name === null || !name.trim()) return;
+        histBreak();
+        setDevices(function(ds) { return ds.map(function(d) {
+          return d.id !== devId ? d : Object.assign({}, d, { pages: d.pages.map(function(x) {
+            return x.id === id ? Object.assign({}, x, { name: name.trim() }) : x;
+          }) });
+        }); });
+      }
+
+      function deleteModPage(devId) {
+        var dev = devById[devId];
+        if (!dev || !dev.pages || dev.pages.length < 2) return;
+        var id = curModPage(dev);
+        var pg = dev.pages.find(function(x) { return x.id === id; });
+        var mine = function(c) { return (c.from.device === devId || c.to.device === devId) && connPageOf(c, dev) === id; };
+        var n = connections.filter(mine).length;
+        if (!window.confirm("Borrar la pagina \"" + pg.name + "\" de " + dev.name + " y sus " + n + " cables?")) return;
+        histBreak();
+        var rest = dev.pages.filter(function(x) { return x.id !== id; });
+        setConnections(function(cs) {
+          return cs.filter(function(c) { return !mine(c); }).map(function(c) {
+            // cables que dependian de la pagina por defecto borrada quedan fijados a la nueva primera
+            if ((c.from.device === devId || c.to.device === devId) && !(c.mpage && c.mpage[devId]) && id === dev.pages[0].id) {
+              var mp = Object.assign({}, c.mpage || {}); mp[devId] = rest[0].id;
+              return Object.assign({}, c, { mpage: mp });
+            }
+            return c;
+          });
+        });
+        setDevices(function(ds) { return ds.map(function(d) {
+          return d.id !== devId ? d : Object.assign({}, d, { pages: rest });
+        }); });
+        setModPage(function(m) { var nm = Object.assign({}, m); nm[devId] = rest[0].id; return nm; });
       }
 
       function setConnMode(ids, mode) {
@@ -1101,7 +1298,7 @@
         if (m.kind === "dev") {
           var multi = multiSelect.length > 1 && multiSelect.indexOf(m.id) >= 0;
           var ids = multi ? multiSelect : [m.id];
-          var nConn = connections.filter(function(c) {
+          var nConn = pageConns.filter(function(c) {
             return ids.indexOf(c.from.device) >= 0 || ids.indexOf(c.to.device) >= 0;
           }).length;
           if (!multi) {
@@ -1113,7 +1310,7 @@
             items.push({ label: "Duplicar", icon: "⧉", hint: "Ctrl+D", run: duplicateSelection });
             items.push({ label: "Seleccionar conectados", icon: "⇆", disabled: nConn === 0, run: function() {
               var set = [m.id];
-              connections.forEach(function(c) {
+              pageConns.forEach(function(c) {
                 if (c.from.device === m.id && set.indexOf(c.to.device) < 0) set.push(c.to.device);
                 if (c.to.device === m.id && set.indexOf(c.from.device) < 0) set.push(c.from.device);
               });
@@ -1126,6 +1323,16 @@
           items.push({ label: "Desconectar todo (" + nConn + ")", icon: "✂", disabled: nConn === 0, run: function() { disconnectDevices(ids); } });
           items.push({ label: multi ? "Exportar CSV (" + ids.length + " modulos)" : "Exportar CSV del modulo", icon: "⇩",
             run: function() { exportModuleCSV(ids); } });
+          if (!multi) {
+            items.push({ sep: true });
+            items.push({ header: "Paginas del modulo" });
+            items.push({ label: "Nueva pagina de cables", icon: "+", run: function() { addModPage(m.id); } });
+            if (dev.pages && dev.pages.length > 1) {
+              items.push({ label: "Pagina anterior / siguiente", icon: "⇆", hint: "← →", run: function() { gotoModPage(m.id, 1); } });
+              items.push({ label: "Renombrar pagina actual", icon: "✎", run: function() { renameModPage(m.id); } });
+              items.push({ label: "Borrar pagina actual", icon: "×", danger: true, run: function() { deleteModPage(m.id); } });
+            }
+          }
           items.push({ sep: true });
           items.push({ label: multi ? "Borrar " + ids.length + " dispositivos" : "Borrar dispositivo", icon: "×", danger: true,
             run: function() { if (multi) deleteMultiple(); else deleteDevice(m.id); } });
@@ -1157,7 +1364,7 @@
           var pdev = devices.find(function(d) { return d.id === m.id.devId; });
           var pport = pdev && pdev.ports.find(function(pp) { return pp.id === m.id.portId; });
           if (!pport) return items;
-          var portConns = connections.filter(function(c) {
+          var portConns = pageConns.filter(function(c) {
             return (c.from.device === pdev.id && c.from.port === pport.id) || (c.to.device === pdev.id && c.to.port === pport.id);
           });
           items.push({ header: pdev.name + " / " + pport.name });
@@ -1187,6 +1394,11 @@
         } else {
           items.push({ label: "Dispositivo aqui", icon: "+", run: function() { setAddPos(m.world); setShowAdd(true); } });
           items.push({ label: "Nota aqui", icon: "+", run: function() { addStickyNote(m.world); } });
+          items.push({ sep: true });
+          items.push({ header: "Pagina: " + (pages.find(function(x) { return x.id === curPageId(); }) || {}).name });
+          items.push({ label: "Nueva pagina de cables", icon: "+", run: addPage });
+          items.push({ label: "Renombrar pagina", icon: "✎", run: renamePage });
+          items.push({ label: "Borrar pagina", icon: "×", danger: true, disabled: pages.length < 2, run: deletePage });
           items.push({ sep: true });
           items.push({ label: "Seleccionar todo", icon: "▢", hint: "Ctrl+A", run: selectAll });
           items.push({ label: "Encuadrar vista", icon: "⤢", run: function() { fitToView(); } });
@@ -1276,8 +1488,12 @@
             {isBoth ? (
               <g>
                 <rect x={dev.x + 8} y={py + 2} width={NODE_W - 16} height={PORT_H - 4} rx={4} fill="rgba(var(--fg),0.04)" />
-                <circle cx={dev.x} cy={py + PORT_H / 2} r={5} fill={dotFill} stroke={dotStroke} strokeWidth={1.5} />
-                <circle cx={dev.x + NODE_W} cy={py + PORT_H / 2} r={5} fill={dotFill} stroke={dotStroke} strokeWidth={1.5} />
+                {(function() {
+                  // Solo se dibuja el lado que usan sus cables; sin cables, un punto a la derecha
+                  var used = usedSide[dev.id + "|" + port.id] || { r: true };
+                  return [used.l ? <circle key="l" cx={dev.x} cy={py + PORT_H / 2} r={5} fill={dotFill} stroke={dotStroke} strokeWidth={1.5} /> : null,
+                    used.r ? <circle key="r" cx={dev.x + NODE_W} cy={py + PORT_H / 2} r={5} fill={dotFill} stroke={dotStroke} strokeWidth={1.5} /> : null];
+                })()}
                 <text x={dev.x + NODE_W / 2} y={py + PORT_H / 2 + 3.5} fill="rgba(var(--fg),0.65)" fontSize={9}
                   fontFamily="inherit" textAnchor="middle">⇄ {port.name}</text>
               </g>
@@ -1348,7 +1564,7 @@
 
       // ── CSV por modulo: una fila por puerto/conexion ──
       function exportModuleCSV(ids) {
-        var rows = [["Dispositivo", "Puerto", "Direccion", "Senal", "Sentido", "Conectado a", "Puerto remoto", "Modo", "Canal MIDI out", "Canal MIDI in", "MPE", "ADAT", "Etiqueta"]];
+        var rows = [["Dispositivo", "Puerto", "Direccion", "Senal", "Sentido", "Conectado a", "Puerto remoto", "Modo", "Canal MIDI out", "Canal MIDI in", "MPE", "ADAT", "Etiqueta", "Pagina"]];
         ids.forEach(function(did) {
           var d = devById[did];
           if (!d) return;
@@ -1357,7 +1573,7 @@
               return (c.from.device === d.id && c.from.port === p.id) || (c.to.device === d.id && c.to.port === p.id);
             });
             var base = [d.name, p.name, DIR_LABEL[p.dir] || p.dir, kindLabel(p.kind)];
-            if (cs.length === 0) { rows.push(base.concat(["", "", "", "", "", "", "", "", ""])); return; }
+            if (cs.length === 0) { rows.push(base.concat(["", "", "", "", "", "", "", "", "", ""])); return; }
             cs.forEach(function(c) {
               var isFrom = c.from.device === d.id && c.from.port === p.id;
               var other = isFrom ? c.to : c.from;
@@ -1371,6 +1587,7 @@
                 mpeStr(c),
                 adatStr(c),
                 c.label || "",
+                pageLabel(c),
               ]));
             });
           });
@@ -1391,7 +1608,7 @@
           return p ? p.name : "?";
         }
 
-        var patch = [["Origen", "Puerto origen", "Destino", "Puerto destino", "Tipo", "Modo", "Canal MIDI out", "Canal MIDI in", "MPE", "ADAT", "Etiqueta"]];
+        var patch = [["Origen", "Puerto origen", "Destino", "Puerto destino", "Tipo", "Modo", "Canal MIDI out", "Canal MIDI in", "MPE", "ADAT", "Etiqueta", "Pagina"]];
         connections.forEach(function(c) {
           var fd = devById[c.from.device], td = devById[c.to.device];
           patch.push([
@@ -1403,6 +1620,7 @@
             mpeStr(c),
             adatStr(c),
             c.label || "",
+            pageLabel(c),
           ]);
         });
 
@@ -1503,7 +1721,7 @@
       function saveSnapshot(name) {
         var timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
         var snap = { id: "snap-" + Date.now(), name: name || timestamp, date: timestamp,
-          data: { version: 2, devices: devices, connections: connections, stickyNotes: stickyNotes } };
+          data: { version: 3, devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages } };
         var updated = savedSnapshots.concat([snap]);
         setSavedSnapshots(updated);
         try { localStorage.setItem("studio-router-snapshots", JSON.stringify(updated)); } catch(e) {}
@@ -1517,6 +1735,7 @@
         setDevices(nd.devices);
         setConnections(nd.connections);
         setStickyNotes(nd.stickyNotes);
+        setPages(nd.pages);
         setPan({ x: 60, y: 60 });
         setZoom(0.45);
         setShowSnapshots(false);
@@ -1531,7 +1750,7 @@
 
       function exportJSON() {
         if (!devices || devices.length === 0) { showToast("No hay dispositivos"); return; }
-        var data = JSON.stringify({ version: 2, devices: devices, connections: connections, stickyNotes: stickyNotes }, null, 2);
+        var data = JSON.stringify({ version: 3, devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages }, null, 2);
         setExportData(data);
         setShowExportModal(true);
       }
@@ -1550,6 +1769,7 @@
             setDevices(d.devices);
             setConnections(d.connections);
             setStickyNotes(d.stickyNotes);
+            setPages(d.pages);
             setPan({ x: 60, y: 60 });
             setZoom(0.45);
             setShowImportModal(false);
@@ -1570,6 +1790,9 @@
         setDevices(DEFAULT_DEVICES);
         setConnections([]);
         setStickyNotes([]);
+        setPages(DEFAULT_PAGES);
+        setCurPage("p1");
+        setModPage({});
         setMultiSelect([]);
         setMultiSelectConn([]);
         setPan({ x: 60, y: 60 });
@@ -1614,8 +1837,9 @@
         return nodeHeight(dev, filter);
       }
 
+      // Con filtro de direccion un nodo puede quedar solo con encabezado (sus cables llegan al encabezado)
       function isDevVisible(dev) {
-        return filter === "all" || visiblePorts(dev, filter).length > 0;
+        return viewIsFull(filter) || dev.ports.some(function(p) { return kindOk(p, filter); });
       }
 
       function layoutGrid() {
@@ -1797,20 +2021,28 @@
       var portPos = useMemo(function() {
         var map = {};
         devices.forEach(function(dev) {
+          if (!isDevVisible(dev)) return;
           var ports = visiblePorts(dev, filter);
-          if (filter !== "all" && ports.length === 0) return;
           var rows = portRows(ports);
           var iIn = 0, iOut = 0, iBoth = 0;
           ports.forEach(function(p) {
             var row = p.dir === "both" ? rows.io + iBoth++ : p.dir === "out" ? iOut++ : iIn++;
             var y = portRowY(dev, row, rows) + PORT_H / 2;
             if (p.dir === "both") {
-              map[dev.id + "|" + p.id] = { x: dev.x, xr: dev.x + NODE_W, cx: dev.x + NODE_W / 2, y: y, both: true, nx: -1 };
+              map[dev.id + "|" + p.id] = { x: dev.x, xr: dev.x + NODE_W, cx: dev.x + NODE_W / 2, y: y, both: true, nx: -1, dir: "both" };
             } else {
               var isOut = p.dir === "out";
-              map[dev.id + "|" + p.id] = { x: isOut ? dev.x + NODE_W : dev.x, y: y, nx: isOut ? 1 : -1 };
+              map[dev.id + "|" + p.id] = { x: isOut ? dev.x + NODE_W : dev.x, y: y, nx: isOut ? 1 : -1, dir: p.dir };
             }
           });
+          if (filter.dir) {
+            dev.ports.forEach(function(p) {
+              var key = dev.id + "|" + p.id;
+              if (map[key] || !kindOk(p, filter)) return;
+              var isOut = p.dir === "out";
+              map[key] = { x: isOut ? dev.x + NODE_W : dev.x, y: dev.y + HEADER_H / 2, nx: isOut ? 1 : -1, dir: p.dir, anchor: true };
+            });
+          }
         });
         return map;
       }, [devices, filter]);
@@ -1821,12 +2053,36 @@
         return map;
       }, [devices]);
 
-      var filteredConns = connections.filter(function(c) {
-        if (filter !== "all" && c.kind !== filter) return false;
+      var pageConns = connections.filter(connPageOk);
+
+      var filteredConns = pageConns.filter(function(c) {
+        if (filter.kinds.length > 0 && filter.kinds.indexOf(c.kind) < 0) return false;
         if (modeFilter !== "all" && c.mode !== "all" && c.mode !== modeFilter) return false;
         // Ambos extremos deben estar visibles (evita cables hacia nodos/puertos ocultos)
         return !!(portPos[c.from.device + "|" + c.from.port] && portPos[c.to.device + "|" + c.to.port]);
       });
+
+      // Puertos I/O: el cable usa el lado que mira hacia el otro extremo. nx = direccion de salida del cable
+      function endPt(p, other) {
+        if (!p.both) return p;
+        var ox = other.both ? other.cx : other.x;
+        return ox >= p.cx ? { x: p.xr, y: p.y, nx: 1, dir: "both" } : { x: p.x, y: p.y, nx: -1, dir: "both" };
+      }
+      var usedSide = {};
+      filteredConns.forEach(function(c) {
+        var fk = c.from.device + "|" + c.from.port, tk = c.to.device + "|" + c.to.port;
+        [[fk, tk], [tk, fk]].forEach(function(pair) {
+          var pp = portPos[pair[0]];
+          if (!pp || !pp.both) return;
+          var e = endPt(pp, portPos[pair[1]]);
+          usedSide[pair[0]] = usedSide[pair[0]] || {};
+          usedSide[pair[0]][e.nx === 1 ? "r" : "l"] = true;
+        });
+      });
+
+      // Nodo seleccionado: sus cables que entran y salen se colorean distinto
+      var flowDev = selected && !connecting ? selected : null;
+      var flowCount = { in: 0, out: 0 };
 
       var btnStyle = function(bg, border, color) {
         return { padding: "5px 12px", fontSize: 11, background: bg, border: "1px solid " + border,
@@ -1851,15 +2107,39 @@
             <div style={{ width: 1, height: 18, background: "rgba(var(--fg),0.1)" }} />
             {["all","audio","midi","cv","digital","adat"].map(function(f) {
               var kc = KIND_COLORS[f];
-              var active = filter === f;
+              var active = f === "all" ? viewIsFull(filter) : filter.kinds.indexOf(f) >= 0;
               return (
-                <button key={f} onClick={function() { setFilter(f); }}
+                <button key={f} title={f === "all" ? "Todo" : "Click: solo " + kc.label + " · Shift/Ctrl+click: combinar"}
+                  onClick={function(e) {
+                    if (f === "all") { setFilter(FULL_VIEW); return; }
+                    var multi = e.shiftKey || e.ctrlKey || e.metaKey;
+                    setFilter(function(v) {
+                      var ks;
+                      if (multi) ks = v.kinds.indexOf(f) >= 0 ? v.kinds.filter(function(k) { return k !== f; }) : v.kinds.concat([f]);
+                      else ks = v.kinds.length === 1 && v.kinds[0] === f ? [] : [f];
+                      return { kinds: ks, dir: v.dir };
+                    });
+                  }}
                   style={btnStyle(
                     active ? (kc ? kc.line + "22" : "rgba(var(--fg),0.12)") : "transparent",
                     active ? (kc ? kc.line : "rgba(var(--fg),0.3)") : "rgba(var(--fg),0.08)",
                     active ? kindInk(f) : "rgba(var(--fg),0.5)"
                   )}>
                   {f === "all" ? "Full" : kc ? kc.label : f}
+                </button>
+              );
+            })}
+            {[["in", "In", "Solo entradas"], ["out", "Out", "Solo salidas"]].map(function(d) {
+              var active = filter.dir === d[0];
+              return (
+                <button key={d[0]} title={d[2] + " (los cables llegan al encabezado del otro equipo)"}
+                  onClick={function() { setFilter(function(v) { return { kinds: v.kinds, dir: v.dir === d[0] ? null : d[0] }; }); }}
+                  style={btnStyle(
+                    active ? "rgba(var(--fg),0.12)" : "transparent",
+                    active ? "var(--flow-" + d[0] + ")" : "rgba(var(--fg),0.08)",
+                    active ? "var(--flow-" + d[0] + ")" : "rgba(var(--fg),0.5)"
+                  )}>
+                  {d[0] === "in" ? "→ " : ""}{d[1]}{d[0] === "out" ? " →" : ""}
                 </button>
               );
             })}
@@ -1876,6 +2156,25 @@
                 </button>
               );
             })}
+            <div style={{ width: 1, height: 18, background: "rgba(var(--fg),0.1)" }} />
+            {(function() {
+              var id = curPageId();
+              var idx = pages.findIndex(function(pg) { return pg.id === id; });
+              var arrowSt = Object.assign(btnStyle("transparent", "rgba(var(--fg),0.08)", "rgba(var(--fg),0.6)"), { padding: "5px 8px" });
+              return (
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button onClick={function() { gotoPage(-1); }} disabled={pages.length < 2} aria-label="Pagina anterior"
+                    title="Pagina anterior (←)" style={Object.assign({}, arrowSt, { opacity: pages.length < 2 ? 0.35 : 1 })}>‹</button>
+                  <button onClick={renamePage} title="Pagina de cables (click para renombrar)"
+                    style={Object.assign(btnStyle("rgba(var(--fg),0.05)", "rgba(var(--fg),0.12)", "rgb(var(--fg))"), { maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })}>
+                    {pages[idx].name} <span style={{ color: "rgba(var(--fg),0.5)" }}>{idx + 1}/{pages.length}</span>
+                  </button>
+                  <button onClick={function() { gotoPage(1); }} disabled={pages.length < 2} aria-label="Pagina siguiente"
+                    title="Pagina siguiente (→)" style={Object.assign({}, arrowSt, { opacity: pages.length < 2 ? 0.35 : 1 })}>›</button>
+                  <button onClick={addPage} aria-label="Nueva pagina" title="Nueva pagina de cables" style={arrowSt}>+</button>
+                </div>
+              );
+            })()}
             <div style={{ flex: 1 }} />
             {multiSelect.length > 0 && (
               <button onClick={deleteMultiple} style={btnStyle("rgba(255,80,80,0.12)","rgba(255,80,80,0.4)","var(--danger-ink)")}>
@@ -2055,6 +2354,17 @@
               <pattern id="grid" x="0" y="0" width={40 * zoom} height={40 * zoom} patternUnits="userSpaceOnUse">
                 <circle cx={pan.x % (40 * zoom)} cy={pan.y % (40 * zoom)} r="0.8" fill="rgba(var(--fg),0.04)" />
               </pattern>
+              {[["sel", "var(--teal-ink)"], ["fg", "rgb(var(--fg))"], ["in", "var(--flow-in)"], ["out", "var(--flow-out)"]]
+                .concat(Object.keys(KIND_COLORS).map(function(k) { return [k, KIND_COLORS[k].line]; }))
+                .map(function(m) {
+                  // Flecha 7px antes del extremo para no quedar bajo el punto del puerto
+                  return (
+                    <marker key={"arr-" + m[0]} id={"arr-" + m[0]} viewBox="0 0 10 10" refX="17" refY="5"
+                      markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+                      <path d="M0,1 L9,5 L0,9 z" fill={m[1]} />
+                    </marker>
+                  );
+                })}
               {Object.keys(KIND_COLORS).map(function(k) {
                 return (
                   <filter id={"glow-" + k} key={k}>
@@ -2073,12 +2383,6 @@
               {filteredConns.map(function(conn) {
                 var fromP = portPos[conn.from.device + "|" + conn.from.port];
                 var toP = portPos[conn.to.device + "|" + conn.to.port];
-                // Puertos I/O: usar el lado que mira hacia el otro extremo. nx = direccion de salida del cable
-                function endPt(p, other) {
-                  if (!p.both) return p;
-                  var ox = other.both ? other.cx : other.x;
-                  return ox >= p.cx ? { x: p.xr, y: p.y, nx: 1 } : { x: p.x, y: p.y, nx: -1 };
-                }
                 var from = endPt(fromP, toP);
                 var to = endPt(toP, fromP);
                 var kc = KIND_COLORS[conn.kind] || KIND_COLORS.audio;
@@ -2163,13 +2467,22 @@
                   (conn.from.device === focusedPort.devId && conn.from.port === focusedPort.portId) ||
                   (conn.to.device === focusedPort.devId && conn.to.port === focusedPort.portId)
                 );
-                var isDimmed = focusedPort && !isFocused && !isSel && !isMSel;
+                // La senal va de la salida a la entrada; si el cable se creo desde una entrada, va al reves
+                var reversed = from.dir === "in" || to.dir === "out";
+                var srcDevId = reversed ? conn.to.device : conn.from.device;
+                var touchesFlow = flowDev && (conn.from.device === flowDev || conn.to.device === flowDev);
+                var flowRole = touchesFlow ? (srcDevId === flowDev ? "out" : "in") : null;
+                if (flowRole) flowCount[flowRole]++;
+                var isDimmed = (focusedPort && !isFocused && !isSel && !isMSel) || (flowDev && !touchesFlow && !isSel && !isMSel);
                 var baseW = conn.strokeW || globalCableW;
                 var baseOp = conn.opacity !== undefined ? conn.opacity : globalCableOp;
                 var isHov = hoveredConn === conn.id;
-                var strokeColor = isMSel ? "var(--teal-ink)" : isFocused ? "rgb(var(--fg))" : isHov ? "rgb(var(--fg))" : kc.line;
-                var strokeW = isMSel ? Math.max(4, baseW) : isFocused ? Math.max(4, baseW) : isSel ? Math.max(3.5, baseW) : isHov ? Math.max(3, baseW) : baseW;
-                var strokeOp = isDimmed ? 0.05 : (isMSel || isFocused || isSel || isHov ? 1 : baseOp);
+                var strokeColor = isMSel ? "var(--teal-ink)" : isFocused ? "rgb(var(--fg))" : isHov ? "rgb(var(--fg))" :
+                  flowRole ? "var(--flow-" + flowRole + ")" : kc.line;
+                var strokeW = isMSel ? Math.max(4, baseW) : isFocused ? Math.max(4, baseW) : isSel ? Math.max(3.5, baseW) : isHov ? Math.max(3, baseW) :
+                  flowRole ? Math.max(3, baseW) : baseW;
+                var strokeOp = isDimmed ? 0.07 : (isMSel || isFocused || isSel || isHov || flowRole ? 1 : baseOp);
+                var arrowId = isMSel ? "arr-sel" : (isFocused || isHov) ? "arr-fg" : flowRole ? "arr-" + flowRole : "arr-" + (KIND_COLORS[conn.kind] ? conn.kind : "audio");
                 return (
                   <g key={conn.id} style={{ cursor: "pointer" }}
                     onContextMenu={function(e) { openCtx(e, "conn", conn.id); }}
@@ -2190,7 +2503,9 @@
                       }
                     }}>
                     <path d={path} fill="none" stroke={strokeColor} strokeWidth={strokeW}
-                      strokeDasharray={dashed} strokeOpacity={strokeOp}
+                      strokeDasharray={dashed} opacity={strokeOp}
+                      markerEnd={reversed ? undefined : "url(#" + arrowId + ")"}
+                      markerStart={reversed ? "url(#" + arrowId + ")" : undefined}
                       filter={isMSel || isFocused || isSel || isHov ? "url(#glow-" + (conn.kind || "audio") + ")" : undefined}
                       style={{ transition: "stroke-opacity 0.15s, stroke-width 0.15s" }} />
                     {conn.kind === "adat" ? (
@@ -2330,6 +2645,29 @@
                     </text>
                     <text x={dev.x + 32} y={dev.y + 18} fill="rgb(var(--fg))" fontSize={12} fontWeight={700} fontFamily="inherit">{dev.name}</text>
                     <text x={dev.x + 32} y={dev.y + 32} fill="rgba(var(--fg),0.5)" fontSize={9} fontFamily="inherit">{dev.type}</text>
+                    {dev.pages && dev.pages.length > 1 ? (function() {
+                      var cur = curModPage(dev);
+                      var idx = dev.pages.findIndex(function(pg) { return pg.id === cur; });
+                      var pg = dev.pages[idx];
+                      var label = (pg.name.length > 14 ? pg.name.slice(0, 13) + "…" : pg.name) + " " + (idx + 1) + "/" + dev.pages.length;
+                      var stop = function(e) { e.stopPropagation(); };
+                      return (
+                        <g onPointerDown={stop}>
+                          <rect x={dev.x + NODE_W - 150} y={dev.y + 23} width={142} height={14} rx={3} fill="rgba(var(--fg),0.06)" />
+                          <g style={{ cursor: "pointer" }} onClick={function(e) { e.stopPropagation(); gotoModPage(dev.id, -1); }}>
+                            <rect x={dev.x + NODE_W - 150} y={dev.y + 23} width={16} height={14} fill="transparent" />
+                            <text x={dev.x + NODE_W - 142} y={dev.y + 33} textAnchor="middle" fill="var(--teal-ink)" fontSize={10}>‹</text>
+                          </g>
+                          <text x={dev.x + NODE_W - 79} y={dev.y + 33} textAnchor="middle" fill="rgba(var(--fg),0.75)" fontSize={8}
+                            fontFamily="inherit" style={{ cursor: "pointer" }}
+                            onDoubleClick={function(e) { e.stopPropagation(); renameModPage(dev.id); }}>{label}</text>
+                          <g style={{ cursor: "pointer" }} onClick={function(e) { e.stopPropagation(); gotoModPage(dev.id, 1); }}>
+                            <rect x={dev.x + NODE_W - 24} y={dev.y + 23} width={16} height={14} fill="transparent" />
+                            <text x={dev.x + NODE_W - 16} y={dev.y + 33} textAnchor="middle" fill="var(--teal-ink)" fontSize={10}>›</text>
+                          </g>
+                        </g>
+                      );
+                    })() : null}
 
                     {/* Note indicator */}
                     {dev.notes ? (
@@ -2383,6 +2721,16 @@
               ) : null}
             </g>
           </svg>
+
+          {flowDev && (flowCount.in + flowCount.out) > 0 ? (
+            <div style={{ position: "absolute", left: 14, top: 84, zIndex: 15, display: "flex", gap: 12, alignItems: "center",
+              background: "rgba(var(--panel),0.92)", border: "1px solid rgba(var(--fg),0.1)", borderRadius: 6,
+              padding: "6px 10px", fontSize: 10, color: "rgba(var(--fg),0.7)", pointerEvents: "none" }}>
+              <span style={{ color: "rgb(var(--fg))", fontWeight: 700 }}>{devById[flowDev] ? devById[flowDev].name : ""}</span>
+              <span><span style={{ color: "var(--flow-in)" }}>━━▶</span> entra ({flowCount.in})</span>
+              <span><span style={{ color: "var(--flow-out)" }}>━━▶</span> sale ({flowCount.out})</span>
+            </div>
+          ) : null}
 
           {renderCtxMenu()}
           {renderRenamePort()}
@@ -2881,7 +3229,7 @@
             if (!dev) return null;
             var port = dev.ports.find(function(p) { return p.id === hoveredPort.portId; });
             if (!port) return null;
-            var conns = connections.filter(function(c) {
+            var conns = pageConns.filter(function(c) {
               return (c.from.device === hoveredPort.devId && c.from.port === hoveredPort.portId) ||
                      (c.to.device === hoveredPort.devId && c.to.port === hoveredPort.portId);
             });

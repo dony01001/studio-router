@@ -10,6 +10,10 @@ Herramienta visual e interactiva para mapear el ruteo de audio, MIDI, CV y digit
 - **Conexiones visuales** con colores por tipo: Audio (turquesa), MIDI (amarillo), CV (rosa), Digital (azul), ADAT (violeta, cable tipo fibra óptica)
 - **Cables ADAT** con modo de canales (8 ch a 44.1/48 kHz o 4 ch S/MUX a 88.2/96 kHz) y quién es clock master
 - **Vistas** Full / Audio / MIDI / CV / Digital / ADAT: oculta nodos y puertos que no son del tipo (nodos compactos)
+- **Vistas combinables**: Shift/Ctrl+click en los botones de tipo para mezclar (ej. MIDI + CV + ADAT); **→ In / Out →** muestran solo entradas o salidas (los cables llegan al encabezado del otro equipo)
+- **Dirección de señal**: flecha en cada cable; al seleccionar un nodo, lo que entra se ve menta y lo que sale coral
+- **Páginas de cables**: páginas globales (‹ › en la barra, ← → del teclado) y páginas por módulo (ej. cables virtuales del Hapax; ‹ › en el nodo o ← → con el nodo seleccionado)
+- **Puertos I/O ⇄** (USB): una sola fila; el cable sale por el lado que mira al otro equipo
 - **Filtro de modo** de operación (DAW / Jam / Ambos)
 - **Undo/Redo** (Ctrl+Z / Ctrl+Shift+Z o Ctrl+Y) y botones ↶ ↷
 - **Duplicar** nodos seleccionados con sus cables internos (Ctrl+D o ícono ⧉)
@@ -50,6 +54,8 @@ Solo abre `index.html` en tu navegador (Chrome, Firefox, Edge).
 | Duplicar nodo(s) | Ctrl+D / ícono ⧉ (turquesa) |
 | Selección con caja | Shift + arrastrar en el fondo (suma a la selección) |
 | Seleccionar todo | Ctrl+A |
+| Cambiar página | ← → (con un nodo con páginas seleccionado: sus páginas) |
+| Combinar vistas | Shift/Ctrl + click en MIDI, CV, ADAT… |
 | Menú contextual | Click derecho en nodo, puerto, cable, nota o fondo |
 | Renombrar puerto | Doble click en el puerto / click derecho → Renombrar |
 | CSV de un módulo | Click derecho en nodo → Exportar CSV del módulo |
