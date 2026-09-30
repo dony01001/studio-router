@@ -7,7 +7,7 @@ Herramienta visual e interactiva para mapear el ruteo de audio, MIDI, CV y digit
 ## Características
 
 - **Nodos arrastrables** para cada dispositivo de tu estudio
-- **Conexiones visuales** con colores por tipo: Audio (turquesa), MIDI (amarillo), CV (rosa), Digital (azul), ADAT (naranja, cable tipo fibra óptica)
+- **Conexiones visuales** con colores por tipo: Audio (turquesa), MIDI (amarillo), CV (rosa), Digital (azul), ADAT (violeta, cable tipo fibra óptica)
 - **Cables ADAT** con modo de canales (8 ch a 44.1/48 kHz o 4 ch S/MUX a 88.2/96 kHz) y quién es clock master
 - **Vistas** Full / Audio / MIDI / CV / Digital / ADAT: oculta nodos y puertos que no son del tipo (nodos compactos)
 - **Filtro de modo** de operación (DAW / Jam / Ambos)
