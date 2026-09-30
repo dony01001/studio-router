@@ -446,6 +446,9 @@
       var [draggingNote2, setDraggingNote2] = useState(null);
       var [bulk, setBulk] = useState({ n: 8, prefix: "", dir: "out", kind: "midi" });
       var [histTick, setHistTick] = useState(0);
+      var [ctxMenu, setCtxMenu] = useState(null);   // {kind: "bg"|"dev"|"conn"|"note", id, sx, sy, world}
+      var [marquee, setMarquee] = useState(null);   // {x0, y0, x1, y1, base: [ids]} en coords de mundo
+      var [addPos, setAddPos] = useState(null);     // posicion para "+ Dispositivo aqui"
 
       var svgRef = useRef(null);
       var fileInputRef = useRef(null);
@@ -538,15 +541,29 @@
           var t = e.target;
           var tag = t && t.tagName;
           if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable)) return;
+          if (e.key === "Escape") { setCtxMenu(null); setMarquee(null); }
           if (!(e.ctrlKey || e.metaKey)) return;
           var k = e.key.toLowerCase();
           if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
           else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); redo(); }
           else if (k === "d") { e.preventDefault(); duplicateSelection(); }
+          else if (k === "a") { e.preventDefault(); selectAll(); }
         }
         window.addEventListener("keydown", onKey);
         return function() { window.removeEventListener("keydown", onKey); };
       });
+
+      // ── Cerrar menu contextual al hacer click fuera ──
+      useEffect(function() {
+        if (!ctxMenu) return;
+        function close() { setCtxMenu(null); }
+        window.addEventListener("pointerdown", close);
+        window.addEventListener("blur", close);
+        return function() {
+          window.removeEventListener("pointerdown", close);
+          window.removeEventListener("blur", close);
+        };
+      }, [ctxMenu]);
 
       // ── Auto-save ──
       useEffect(function() {
@@ -571,6 +588,7 @@
       // ── Wheel zoom ──
       function handleWheel(e) {
         e.preventDefault();
+        setCtxMenu(null);
         var delta = e.deltaY > 0 ? 0.92 : 1.08;
         var nz = Math.max(0.15, Math.min(2.5, zoom * delta));
         var rect = svgRef.current.getBoundingClientRect();
@@ -585,7 +603,20 @@
       // ── Pointer events ──
       function handlePointerDown(e) {
         if (e.target === svgRef.current || e.target.classList.contains("bg-grid")) {
+          if (e.button === 2) return; // click derecho: lo maneja onContextMenu
           if (connecting) { setConnecting(null); return; }
+          if (e.shiftKey && e.button === 0) {
+            // Caja de seleccion (Shift + arrastrar en el fondo); suma a la seleccion actual
+            var rect0 = svgRef.current.getBoundingClientRect();
+            var w0 = screenToWorld(e.clientX - rect0.left, e.clientY - rect0.top);
+            setMarquee({ x0: w0.x, y0: w0.y, x1: w0.x, y1: w0.y,
+              base: multiSelect.length > 0 ? multiSelect.slice() : (selected ? [selected] : []) });
+            setSelected(null);
+            setSelectedConn(null);
+            setMultiSelectConn([]);
+            setFocusedPort(null);
+            return;
+          }
           setIsPanning(true);
           setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
           setSelected(null);
@@ -604,6 +635,11 @@
         var sx = e.clientX - rect.left;
         var sy = e.clientY - rect.top;
         setMousePos(screenToWorld(sx, sy));
+        if (marquee) {
+          var wm = screenToWorld(sx, sy);
+          setMarquee(function(m) { return m ? Object.assign({}, m, { x1: wm.x, y1: wm.y }) : m; });
+          return;
+        }
         if (isPanning && panStart) {
           setPan({ x: e.clientX - panStart.x, y: e.clientY - panStart.y });
           return;
@@ -643,6 +679,19 @@
       }
 
       function handlePointerUp() {
+        if (marquee) {
+          var mx0 = Math.min(marquee.x0, marquee.x1), mx1 = Math.max(marquee.x0, marquee.x1);
+          var my0 = Math.min(marquee.y0, marquee.y1), my1 = Math.max(marquee.y0, marquee.y1);
+          var ids = marquee.base.slice();
+          devices.filter(isDevVisible).forEach(function(d) {
+            var h = nodeHeight(d, filter);
+            var hit = d.x < mx1 && d.x + NODE_W > mx0 && d.y < my1 && d.y + h > my0;
+            if (hit && ids.indexOf(d.id) < 0) ids.push(d.id);
+          });
+          setMultiSelect(ids);
+          setSelected(null);
+          setMarquee(null);
+        }
         setDragging(null);
         setDraggingNote2(null);
         setIsPanning(false);
@@ -651,6 +700,7 @@
 
       function startDrag(dev, e) {
         e.stopPropagation();
+        if (e.button === 2) return;
         var rect = svgRef.current.getBoundingClientRect();
         var w = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
         if (e.shiftKey) {
@@ -758,6 +808,161 @@
         showToast("Duplicado: " + copies.length + (copies.length === 1 ? " nodo" : " nodos"));
       }
 
+      function selectAll() {
+        var ids = devices.filter(isDevVisible).map(function(d) { return d.id; });
+        setMultiSelect(ids);
+        setSelected(null);
+        setCtxMenu(null);
+      }
+
+      // ── Menu contextual (click derecho) ──
+      function openCtx(e, kind, id) {
+        if (e.target && e.target.isContentEditable) { e.stopPropagation(); return; } // menu nativo al editar texto
+        e.preventDefault();
+        e.stopPropagation();
+        if (connecting) { setConnecting(null); setCtxMenu(null); return; }
+        var rect = svgRef.current.getBoundingClientRect();
+        var world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+        if (kind === "dev" && multiSelect.indexOf(id) < 0) {
+          setSelected(id); setMultiSelect([]);
+          setSelectedConn(null); setMultiSelectConn([]);
+        }
+        if (kind === "conn" && multiSelectConn.indexOf(id) < 0) {
+          setSelectedConn(id); setMultiSelectConn([]);
+          setSelected(null); setMultiSelect([]);
+        }
+        if (kind === "note") setSelectedNote(id);
+        setShowLayouts(false);
+        setShowCableStyle(false);
+        setCtxMenu({ kind: kind, id: id, sx: e.clientX, sy: e.clientY, world: world });
+      }
+
+      function disconnectDevices(ids) {
+        setConnections(function(cs) {
+          return cs.filter(function(c) { return ids.indexOf(c.from.device) < 0 && ids.indexOf(c.to.device) < 0; });
+        });
+      }
+
+      function setConnMode(ids, mode) {
+        setConnections(function(cs) {
+          return cs.map(function(c) { return ids.indexOf(c.id) >= 0 ? Object.assign({}, c, { mode: mode }) : c; });
+        });
+      }
+
+      function ctxItems(m) {
+        var items = [];
+        if (m.kind === "dev") {
+          var multi = multiSelect.length > 1 && multiSelect.indexOf(m.id) >= 0;
+          var ids = multi ? multiSelect : [m.id];
+          var nConn = connections.filter(function(c) {
+            return ids.indexOf(c.from.device) >= 0 || ids.indexOf(c.to.device) >= 0;
+          }).length;
+          if (!multi) {
+            var dev = devices.find(function(d) { return d.id === m.id; });
+            items.push({ header: dev ? dev.name : "" });
+            items.push({ label: "Editar puertos...", icon: "⚙", run: function() { setEditingPorts(m.id); } });
+            items.push({ label: "Nota...", icon: "✎", run: function() { setEditingDeviceNote(m.id); } });
+            items.push({ label: "Duplicar", icon: "⧉", hint: "Ctrl+D", run: duplicateSelection });
+            items.push({ label: "Seleccionar conectados", icon: "⇆", disabled: nConn === 0, run: function() {
+              var set = [m.id];
+              connections.forEach(function(c) {
+                if (c.from.device === m.id && set.indexOf(c.to.device) < 0) set.push(c.to.device);
+                if (c.to.device === m.id && set.indexOf(c.from.device) < 0) set.push(c.from.device);
+              });
+              setMultiSelect(set); setSelected(null);
+            } });
+          } else {
+            items.push({ header: ids.length + " dispositivos" });
+            items.push({ label: "Duplicar seleccion", icon: "⧉", hint: "Ctrl+D", run: duplicateSelection });
+          }
+          items.push({ label: "Desconectar todo (" + nConn + ")", icon: "✂", disabled: nConn === 0, run: function() { disconnectDevices(ids); } });
+          items.push({ sep: true });
+          items.push({ label: multi ? "Borrar " + ids.length + " dispositivos" : "Borrar dispositivo", icon: "×", danger: true,
+            run: function() { if (multi) deleteMultiple(); else deleteDevice(m.id); } });
+        } else if (m.kind === "conn") {
+          var multiC = multiSelectConn.length > 1 && multiSelectConn.indexOf(m.id) >= 0;
+          var cids = multiC ? multiSelectConn : [m.id];
+          var conn = connections.find(function(c) { return c.id === m.id; });
+          if (!conn) return items;
+          if (!multiC) {
+            var fd = devices.find(function(d) { return d.id === conn.from.device; });
+            var td = devices.find(function(d) { return d.id === conn.to.device; });
+            items.push({ header: (fd ? fd.name : "?") + " → " + (td ? td.name : "?") });
+            items.push({ label: "Editar cable...", icon: "✎", run: function() { setSelectedConn(m.id); } });
+            items.push({ label: "Seleccionar extremos", icon: "⇆", run: function() {
+              setMultiSelect([conn.from.device, conn.to.device]); setSelected(null); setSelectedConn(null);
+            } });
+          } else {
+            items.push({ header: cids.length + " cables" });
+          }
+          items.push({ sep: true });
+          [["all", "Ambos"], ["daw", "Solo DAW"], ["jam", "Solo Jam"]].forEach(function(mo) {
+            var active = !multiC && (conn.mode || "all") === mo[0];
+            items.push({ label: "Modo: " + mo[1], icon: active ? "✓" : "", run: function() { setConnMode(cids, mo[0]); } });
+          });
+          items.push({ sep: true });
+          items.push({ label: multiC ? "Borrar " + cids.length + " cables" : "Borrar cable", icon: "×", danger: true,
+            run: function() { if (multiC) deleteMultipleConnections(); else deleteConnection(m.id); } });
+        } else if (m.kind === "note") {
+          items.push({ header: "Nota" });
+          items.push({ label: "Borrar nota", icon: "×", danger: true, run: function() { deleteStickyNote(m.id); } });
+        } else {
+          items.push({ label: "Dispositivo aqui", icon: "+", run: function() { setAddPos(m.world); setShowAdd(true); } });
+          items.push({ label: "Nota aqui", icon: "+", run: function() { addStickyNote(m.world); } });
+          items.push({ sep: true });
+          items.push({ label: "Seleccionar todo", icon: "▢", hint: "Ctrl+A", run: selectAll });
+          items.push({ label: "Encuadrar vista", icon: "⤢", run: fitToView });
+          items.push({ label: "Deshacer", icon: "↶", hint: "Ctrl+Z", disabled: hist.current.past.length === 0, run: undo });
+          items.push({ label: "Rehacer", icon: "↷", hint: "Ctrl+Shift+Z", disabled: hist.current.future.length === 0, run: redo });
+          items.push({ sep: true });
+          items.push({ header: "Layout" });
+          items.push({ label: "Grid", icon: "⊞", run: layoutGrid });
+          items.push({ label: "Por tipo", icon: "⊟", run: layoutByType });
+          items.push({ label: "Flujo de senal", icon: "→", run: layoutSignalFlow });
+          items.push({ label: "Circular", icon: "◎", run: layoutCircular });
+        }
+        return items;
+      }
+
+      function renderCtxMenu() {
+        if (!ctxMenu) return null;
+        var items = ctxItems(ctxMenu);
+        if (items.length === 0) return null;
+        var W = 220;
+        var estH = items.reduce(function(a, it) { return a + (it.sep ? 9 : it.header ? 24 : 28); }, 12);
+        var left = Math.min(ctxMenu.sx, window.innerWidth - W - 8);
+        var top = Math.min(ctxMenu.sy, window.innerHeight - estH - 8);
+        return (
+          <div onPointerDown={function(e) { e.stopPropagation(); }}
+            onContextMenu={function(e) { e.preventDefault(); }}
+            style={{ position: "fixed", left: Math.max(8, left), top: Math.max(8, top), width: W, zIndex: 200,
+              background: "rgba(14,14,24,0.98)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8,
+              padding: 6, boxShadow: "0 10px 30px rgba(0,0,0,0.5)", backdropFilter: "blur(12px)" }}>
+            {items.map(function(it, i) {
+              if (it.sep) return <div key={i} style={{ height: 1, background: "rgba(255,255,255,0.07)", margin: "4px 2px" }} />;
+              if (it.header) return (
+                <div key={i} style={{ padding: "5px 8px 3px", color: "rgba(255,255,255,0.35)", fontSize: 9, letterSpacing: 1,
+                  textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.header}</div>
+              );
+              return (
+                <button key={i} disabled={it.disabled}
+                  onClick={function() { setCtxMenu(null); it.run(); }}
+                  onMouseEnter={function(e) { if (!it.disabled) e.currentTarget.style.background = it.danger ? "rgba(255,80,80,0.12)" : "rgba(255,255,255,0.07)"; }}
+                  onMouseLeave={function(e) { e.currentTarget.style.background = "transparent"; }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "6px 8px",
+                    background: "transparent", border: "none", borderRadius: 5, textAlign: "left",
+                    color: it.disabled ? "rgba(255,255,255,0.2)" : it.danger ? "#ff5050" : "rgba(255,255,255,0.85)",
+                    fontSize: 11, fontFamily: "inherit", cursor: it.disabled ? "default" : "pointer" }}>
+                  <span style={{ width: 14, textAlign: "center", opacity: 0.8 }}>{it.icon}</span>
+                  <span style={{ flex: 1 }}>{it.label}</span>
+                  {it.hint ? <span style={{ color: "rgba(255,255,255,0.25)", fontSize: 9 }}>{it.hint}</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        );
+      }
+
       function exportCSV() {
         if (!devices || devices.length === 0) { showToast("No hay dispositivos"); return; }
         var devById = {};
@@ -851,7 +1056,7 @@
       function addDevice() {
         if (!newDevice.name.trim()) return;
         var id = "dev-" + Date.now();
-        var center = screenToWorld(400, 300);
+        var center = addPos || screenToWorld(400, 300);
         setDevices(function(ds) {
           return ds.concat([{
             id: id, name: newDevice.name.trim(), type: newDevice.type,
@@ -862,10 +1067,11 @@
         setNewDevice({ name: "", type: "synth", color: "#00B894" });
         setNewPorts([]);
         setShowAdd(false);
+        setAddPos(null);
       }
 
-      function addStickyNote() {
-        var center = screenToWorld(400, 300);
+      function addStickyNote(pos) {
+        var center = pos || screenToWorld(400, 300);
         var note = { id: "note-" + Date.now(), x: center.x, y: center.y, text: "Nueva nota...", color: "#FFEAA7", w: 200 };
         setStickyNotes(function(ns) { return ns.concat([note]); });
         setSelectedNote(note.id);
@@ -1244,10 +1450,10 @@
                 { opacity: hist.current.future.length === 0 ? 0.3 : 1, padding: "5px 9px" })}>
               ↷
             </button>
-            <button onClick={function() { setShowAdd(true); }} style={btnStyle("rgba(0,206,201,0.15)","#00CEC9","#00CEC9")}>
+            <button onClick={function() { setAddPos(null); setShowAdd(true); }} style={btnStyle("rgba(0,206,201,0.15)","#00CEC9","#00CEC9")}>
               + DISPOSITIVO
             </button>
-            <button onClick={addStickyNote} style={btnStyle("rgba(255,234,167,0.12)","rgba(255,234,167,0.4)","#FFEAA7")}>
+            <button onClick={function() { addStickyNote(); }} style={btnStyle("rgba(255,234,167,0.12)","rgba(255,234,167,0.4)","#FFEAA7")}>
               + NOTA
             </button>
             <div style={{ width: 1, height: 18, background: "rgba(255,255,255,0.1)" }} />
@@ -1395,7 +1601,7 @@
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            onContextMenu={function(e) { e.preventDefault(); setConnecting(null); }}
+            onContextMenu={function(e) { openCtx(e, "bg", null); }}
             tabIndex={0}
             onKeyDown={function(e) { if (e.key === "Escape") { setConnecting(null); setSelected(null); setSelectedConn(null); setMultiSelect([]); setMultiSelectConn([]); setFocusedPort(null); } }}>
             <defs>
@@ -1491,7 +1697,7 @@
                 var strokeW = isMSel ? Math.max(4, baseW) : isFocused ? Math.max(4, baseW) : isSel ? Math.max(3.5, baseW) : isHov ? Math.max(3, baseW) : baseW;
                 var strokeOp = isDimmed ? 0.05 : (isMSel || isFocused || isSel || isHov ? 1 : baseOp);
                 return (
-                  <g key={conn.id}>
+                  <g key={conn.id} onContextMenu={function(e) { openCtx(e, "conn", conn.id); }}>
                     <path d={path} fill="none" stroke={strokeColor} strokeWidth={strokeW}
                       strokeDasharray={dashed} strokeOpacity={strokeOp}
                       filter={isMSel || isFocused || isSel || isHov ? "url(#glow-" + (conn.kind || "audio") + ")" : undefined}
@@ -1577,6 +1783,7 @@
                 var nw = note.w || 200;
                 return (
                   <g key={note.id}
+                    onContextMenu={function(e) { openCtx(e, "note", note.id); }}
                     onPointerDown={function(e) {
                       e.stopPropagation();
                       var rect = svgRef.current.getBoundingClientRect();
@@ -1630,7 +1837,8 @@
                 var inPorts = vPorts.filter(function(p) { return p.dir === "in" || p.dir === "both"; });
                 var outPorts = vPorts.filter(function(p) { return p.dir === "out" || p.dir === "both"; });
                 return (
-                  <g key={dev.id} onPointerDown={function(e) { startDrag(dev, e); }}>
+                  <g key={dev.id} onPointerDown={function(e) { startDrag(dev, e); }}
+                    onContextMenu={function(e) { openCtx(e, "dev", dev.id); }}>
                     <rect x={dev.x + 4} y={dev.y + 4} width={NODE_W} height={h} rx={8} fill="rgba(0,0,0,0.4)" />
                     <rect x={dev.x} y={dev.y} width={NODE_W} height={h} rx={8}
                       fill="rgba(18,18,28,0.95)"
@@ -1739,8 +1947,17 @@
                   </g>
                 );
               })}
+              {/* Caja de seleccion */}
+              {marquee ? (
+                <rect x={Math.min(marquee.x0, marquee.x1)} y={Math.min(marquee.y0, marquee.y1)}
+                  width={Math.abs(marquee.x1 - marquee.x0)} height={Math.abs(marquee.y1 - marquee.y0)}
+                  fill="rgba(0,206,201,0.08)" stroke="#00CEC9" strokeWidth={1 / zoom} strokeDasharray={(4 / zoom) + "," + (3 / zoom)}
+                  style={{ pointerEvents: "none" }} />
+              ) : null}
             </g>
           </svg>
+
+          {renderCtxMenu()}
 
           {/* Connection editor */}
           {selectedConn ? (function() {
@@ -2343,7 +2560,7 @@
           {/* Help */}
           <div style={{ position: "absolute", bottom: 12, right: 14, color: "rgba(255,255,255,0.18)",
             fontSize: 9, fontFamily: "inherit", textAlign: "right", lineHeight: 1.6, zIndex: 10 }}>
-            Click puerto = conectar | Shift+click puerto = resaltar conexiones | Shift+click nodo = seleccion multiple | Ctrl+click cable = multi-cables | Ctrl+Z / Ctrl+Shift+Z = deshacer / rehacer | Ctrl+D = duplicar | Esc = cancelar
+            Click puerto = conectar | Shift+click puerto = resaltar conexiones | Shift+click nodo / Shift+arrastrar fondo = seleccion multiple | Click derecho = menu | Ctrl+click cable = multi-cables | Ctrl+Z / Ctrl+Shift+Z = deshacer / rehacer | Ctrl+D = duplicar | Esc = cancelar
           </div>
         </div>
       );

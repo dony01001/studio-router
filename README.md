@@ -39,13 +39,16 @@ Solo abre `index.html` en tu navegador (Chrome, Firefox, Edge).
 |--------|---------|
 | Mover nodo | Arrastrar |
 | Conectar puertos | Click en puerto → Click en otro puerto |
-| Cancelar cable | Click derecho / Esc / Click en fondo |
+| Cancelar cable | Click derecho (mientras conectas) / Esc / Click en fondo |
 | Zoom | Scroll del mouse |
 | Pan (mover canvas) | Click + arrastrar en el fondo |
 | Editar puertos | Seleccionar nodo → ícono ⚙ (azul) |
 | Agregar nota al nodo | Seleccionar nodo → ícono ✎ (amarillo) |
 | Borrar nodo | Seleccionar nodo → ícono × (rojo) |
 | Duplicar nodo(s) | Ctrl+D / ícono ⧉ (turquesa) |
+| Selección con caja | Shift + arrastrar en el fondo (suma a la selección) |
+| Seleccionar todo | Ctrl+A |
+| Menú contextual | Click derecho en nodo, cable, nota o fondo |
 | Deshacer / Rehacer | Ctrl+Z / Ctrl+Shift+Z (o Ctrl+Y) |
 | Editar conexión | Click en el cable |
 
