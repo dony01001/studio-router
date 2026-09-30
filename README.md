@@ -19,6 +19,7 @@ Herramienta visual e interactiva para mapear el ruteo de audio, MIDI, CV y digit
 - **Exportar/Importar** vía JSON (copiar y pegar)
 - **Exportar CSV**: patch list (un cable por fila) + inventario de puertos
 - **Zoom y pan** con scroll y arrastrar
+- **Tema claro y oscuro** (botón ☀/☾ en la barra o click derecho en el fondo); se recuerda y la primera vez sigue el tema del sistema
 - **Persistencia automática** en localStorage del navegador
 
 ## Uso
