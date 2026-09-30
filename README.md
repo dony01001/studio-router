@@ -8,11 +8,16 @@ Herramienta visual e interactiva para mapear el ruteo de audio, MIDI, CV y digit
 
 - **Nodos arrastrables** para cada dispositivo de tu estudio
 - **Conexiones visuales** con colores por tipo: Audio (turquesa), MIDI (amarillo), CV (rosa), Digital (azul)
-- **Filtros** por tipo de señal y modo de operación (DAW / Jam / Ambos)
+- **Vistas** Full / Audio / MIDI / CV / Digital: oculta nodos y puertos que no son del tipo (nodos compactos)
+- **Filtro de modo** de operación (DAW / Jam / Ambos)
+- **Undo/Redo** (Ctrl+Z / Ctrl+Shift+Z o Ctrl+Y) y botones ↶ ↷
+- **Duplicar** nodos seleccionados con sus cables internos (Ctrl+D o ícono ⧉)
 - **Notas** en cada dispositivo y notas libres (sticky notes) en el canvas
 - **Editor de puertos** para agregar, quitar y modificar puertos de cada módulo
+- **Generar N puertos** de golpe (ej. 8 × "MIDI Out" → MIDI Out 1..8, la numeración continúa)
 - **Versiones/Snapshots** guardados internamente para comparar configuraciones
 - **Exportar/Importar** vía JSON (copiar y pegar)
+- **Exportar CSV**: patch list (un cable por fila) + inventario de puertos
 - **Zoom y pan** con scroll y arrastrar
 - **Persistencia automática** en localStorage del navegador
 
@@ -40,6 +45,8 @@ Solo abre `index.html` en tu navegador (Chrome, Firefox, Edge).
 | Editar puertos | Seleccionar nodo → ícono ⚙ (azul) |
 | Agregar nota al nodo | Seleccionar nodo → ícono ✎ (amarillo) |
 | Borrar nodo | Seleccionar nodo → ícono × (rojo) |
+| Duplicar nodo(s) | Ctrl+D / ícono ⧉ (turquesa) |
+| Deshacer / Rehacer | Ctrl+Z / Ctrl+Shift+Z (o Ctrl+Y) |
 | Editar conexión | Click en el cable |
 
 ## Datos
@@ -55,7 +62,6 @@ Features pendientes para versiones futuras:
 - **Transpose por cable MIDI** — semitonos -24 a +24
 - **Grupos de puertos** — agrupar puertos visualmente con color compartido (ej. DIN 1-4 = "Bus A")
 - **MPE member channels** — configurar rango de canales miembro (lower/upper zone)
-- **Undo/Redo** (Ctrl+Z / Ctrl+Shift+Z)
 - **Búsqueda** de dispositivos y puertos
 - **Exportar PNG/SVG** del canvas completo
 - **Modo presentación** (pantalla completa sin toolbar)
