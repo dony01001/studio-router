@@ -608,7 +608,9 @@
       var [showLayouts, setShowLayouts] = useState(false);
       var [userLayouts, setUserLayouts] = useState([]);
       var [showUserLayouts, setShowUserLayouts] = useState(false);
-      var [showReset, setShowReset] = useState(false);
+      var [showSetups, setShowSetups] = useState(false);
+      var [setups, setSetups] = useState([]);       // setups (plantillas de estudio) del usuario
+      var [setupName, setSetupName] = useState("");
       var [newLayoutName, setNewLayoutName] = useState("");
       var [hoveredConn, setHoveredConn] = useState(null);
       var [cableStyle, setCableStyle] = useState("bezier");
@@ -645,6 +647,10 @@
         try {
           var uls = localStorage.getItem("studio-router-user-layouts");
           if (uls) setUserLayouts(JSON.parse(uls));
+        } catch(e) {}
+        try {
+          var sts = localStorage.getItem("studio-router-setups");
+          if (sts) setSetups(JSON.parse(sts).filter(function(x) { return x && x.id && x.data; }));
         } catch(e) {}
         try {
           var tpl = localStorage.getItem("studio-router-templates");
@@ -749,7 +755,7 @@
         applyHistory(h.future.pop());
       }
 
-      var modalOpen = !!(showAdd || editingPorts || showExportModal || showImportModal || showSnapshots || showUserLayouts || showReset);
+      var modalOpen = !!(showAdd || editingPorts || showExportModal || showImportModal || showSnapshots || showUserLayouts || showSetups);
 
       function closeModals() {
         setTypeDraft(null);
@@ -759,7 +765,7 @@
         setShowImportModal(false);
         setShowSnapshots(false);
         setShowUserLayouts(false);
-        setShowReset(false);
+        setShowSetups(false);
         setEditingDeviceNote(null);
       }
 
@@ -1537,6 +1543,7 @@
           items.push({ label: "Renombrar pagina", icon: "✎", run: renamePage });
           items.push({ label: "Borrar pagina", icon: "×", danger: true, disabled: pages.length < 2, run: deletePage });
           items.push({ sep: true });
+          items.push({ label: "Setups (plantillas de estudio)...", icon: "★", run: function() { setShowSetups(true); } });
           items.push({ label: "Seleccionar todo", icon: "▢", hint: "Ctrl+A", run: selectAll });
           items.push({ label: "Encuadrar vista", icon: "⤢", run: function() { fitToView(); } });
           items.push({ label: theme === "dark" ? "Tema claro" : "Tema oscuro", icon: theme === "dark" ? "☀" : "☾", run: toggleTheme });
@@ -1984,13 +1991,12 @@
         }
       }
 
-      // Reset: "empty" deja el lienzo vacio; "example" carga el estudio de ejemplo.
-      // Categorias propias y plantillas se conservan. Se puede deshacer con Ctrl+Z.
-      function resetStudio(mode) {
-        setShowReset(false);
+      // Reset: deja el lienzo vacio. Categorias, plantillas, setups, versiones y layouts se conservan. Ctrl+Z lo deshace.
+      function resetStudio() {
+        if (!window.confirm("Vaciar todo? Se borran dispositivos, cables, notas y paginas.\n(Ctrl+Z lo deshace)")) return;
         histBreak();
         stopAnimation();
-        setDevices(mode === "example" ? DEFAULT_DEVICES : []);
+        setDevices([]);
         setConnections([]);
         setStickyNotes([]);
         setPages(DEFAULT_PAGES);
@@ -2001,8 +2007,76 @@
         setSelected(null);
         setSelectedConn(null);
         setPan({ x: 60, y: 60 });
-        setZoom(mode === "example" ? 0.45 : 1);
-        showToast(mode === "example" ? "Estudio de ejemplo cargado (Ctrl+Z para deshacer)" : "Lienzo vacio (Ctrl+Z para deshacer)");
+        setZoom(1);
+        showToast("Lienzo vacio (Ctrl+Z para deshacer)");
+      }
+
+      // ── Setups: plantillas de estudio completo como punto de partida ──
+      var BUILTIN_SETUPS = [
+        { id: "builtin:example", name: "Estudio de ejemplo", builtin: true,
+          desc: "Hapax, MRCC, Octatrack, MOTU, OctoPre...", data: { devices: DEFAULT_DEVICES } },
+      ];
+
+      function persistSetups(list) {
+        setSetups(list);
+        try { localStorage.setItem("studio-router-setups", JSON.stringify(list)); }
+        catch(e) { showToast("No se pudo guardar (almacenamiento lleno)"); }
+      }
+
+      function saveSetup(name) {
+        name = (name || "").trim();
+        if (!name) { showToast("Escribe un nombre para el setup"); return; }
+        if (devices.length === 0) { showToast("El estudio esta vacio"); return; }
+        var st = { id: "setup-" + Date.now(), name: name, date: new Date().toISOString().slice(0, 16).replace("T", " "),
+          data: { version: 3, devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages, customTypes: customTypes } };
+        var same = setups.find(function(x) { return x.name.toLowerCase() === name.toLowerCase(); });
+        if (same) {
+          if (!window.confirm("Ya existe el setup \"" + same.name + "\". Reemplazarlo?")) return;
+          st.id = same.id;
+          persistSetups(setups.map(function(x) { return x.id === same.id ? st : x; }));
+        } else {
+          persistSetups(setups.concat([st]));
+        }
+        setSetupName("");
+        showToast("Setup guardado: " + name);
+      }
+
+      function loadSetup(st) {
+        var hasWork = devices.length > 0 || stickyNotes.length > 0;
+        if (hasWork && !window.confirm("Cargar \"" + st.name + "\" reemplaza el estudio actual.\n(Ctrl+Z lo deshace)")) return;
+        histBreak();
+        stopAnimation();
+        var nd = normalizeData(st.data);
+        setDevices(nd.devices);
+        setConnections(nd.connections);
+        setStickyNotes(nd.stickyNotes);
+        setPages(nd.pages);
+        setCurPage(nd.pages[0].id);
+        setModPage({});
+        // Categorias del setup se suman a las propias
+        if (nd.customTypes.length) {
+          setCustomTypes(function(cs) {
+            var names = cs.map(function(c) { return c.name; });
+            return cs.concat(nd.customTypes.filter(function(c) { return names.indexOf(c.name) < 0; }));
+          });
+        }
+        setSelected(null); setMultiSelect([]); setSelectedConn(null); setMultiSelectConn([]);
+        setShowSetups(false);
+        setTimeout(function() { fitToView(null, nd.devices); }, 60);
+        showToast("Setup cargado: " + st.name + " (Ctrl+Z para deshacer)");
+      }
+
+      function deleteSetup(id) {
+        var st = setups.find(function(x) { return x.id === id; });
+        if (!st || !window.confirm("Borrar el setup \"" + st.name + "\"?")) return;
+        persistSetups(setups.filter(function(x) { return x.id !== id; }));
+      }
+
+      function renameSetup(id) {
+        var st = setups.find(function(x) { return x.id === id; });
+        var name = window.prompt("Renombrar setup:", st.name);
+        if (name === null || !name.trim()) return;
+        persistSetups(setups.map(function(x) { return x.id === id ? Object.assign({}, x, { name: name.trim() }) : x; }));
       }
 
       function animateTo(targetPositions) {
@@ -2190,8 +2264,8 @@
       }
 
       // posOverride opcional: {id: {x, y}} para encuadrar posiciones que aun no estan en el estado
-      function fitToView(posOverride) {
-        var visDevs = devices.filter(isDevVisible);
+      function fitToView(posOverride, devList) {
+        var visDevs = (devList || devices).filter(isDevVisible);
         if (visDevs.length === 0) return;
         var svgEl = svgRef.current;
         if (!svgEl) return;
@@ -2411,6 +2485,10 @@
             <button onClick={function() { saveSnapshot(); }} style={btnStyle("rgba(0,206,201,0.08)","rgba(0,206,201,0.3)","var(--teal-soft)")}>
               Guardar
             </button>
+            <button onClick={function() { setShowSetups(true); }} title="Plantillas de estudio: guardar y cargar puntos de partida"
+              style={btnStyle("rgba(var(--note-rgb),calc(0.08 * var(--note-k)))","rgba(var(--note-rgb),calc(0.3 * var(--note-k)))","var(--note-ink)")}>
+              Setups {setups.length > 0 ? "(" + setups.length + ")" : ""}
+            </button>
             <button onClick={function() { setShowSnapshots(true); }} style={btnStyle("rgba(116,185,255,0.08)","rgba(116,185,255,0.3)","var(--blue-soft)")}>
               Versiones {savedSnapshots.length > 0 ? "(" + savedSnapshots.length + ")" : ""}
             </button>
@@ -2476,7 +2554,7 @@
               style={btnStyle(showCableStyle ? "rgba(0,206,201,0.15)" : "rgba(var(--fg),0.05)", showCableStyle ? "var(--teal-ink)" : "rgba(var(--fg),0.1)", showCableStyle ? "var(--teal-ink)" : "rgba(var(--fg),0.4)")}>
               Cables
             </button>
-            <button onClick={function() { setShowReset(true); }} style={btnStyle("rgba(255,80,80,0.08)","rgba(255,80,80,0.2)","var(--red-soft)")}>
+            <button onClick={resetStudio} title="Vaciar todo (Ctrl+Z lo deshace)" style={btnStyle("rgba(255,80,80,0.08)","rgba(255,80,80,0.2)","var(--red-soft)")}>
               Reset
             </button>
             <button onClick={toggleTheme} title={theme === "dark" ? "Tema claro" : "Tema oscuro"} aria-label="Cambiar tema"
@@ -3616,37 +3694,74 @@
             </div>
           ) : null}
 
-          {/* Reset Modal */}
-          {showReset ? (
-            <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-              background: "rgba(var(--shade),calc(0.7 * var(--shade-k)))", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}
-              onClick={function() { setShowReset(false); }}>
-              <div role="dialog" aria-label="Reset" onClick={function(e) { e.stopPropagation(); }}
-                style={{ background: "rgba(var(--node),0.99)", border: "1px solid rgba(var(--fg),0.1)", borderRadius: 12,
-                  padding: 22, width: 400, display: "flex", flexDirection: "column", gap: 10 }}>
-                <h3 style={{ color: "rgb(var(--fg))", margin: 0, fontSize: 14, fontFamily: "inherit" }}>Reset</h3>
-                <p style={{ color: "rgba(var(--fg),0.55)", margin: 0, fontSize: 11, lineHeight: 1.5 }}>
-                  Se borran dispositivos, cables, notas y paginas. Tus categorias, plantillas, versiones y layouts se conservan.
-                  Se puede deshacer con Ctrl+Z.
-                </p>
-                <button onClick={function() { resetStudio("empty"); }}
-                  style={{ padding: "10px", background: "rgba(255,80,80,0.12)", border: "1px solid rgba(255,80,80,0.4)", borderRadius: 6,
-                    color: "var(--danger-ink)", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600, textAlign: "left" }}>
-                  Vaciar todo
-                  <div style={{ fontWeight: 400, fontSize: 10, color: "rgba(var(--fg),0.5)", marginTop: 2 }}>Lienzo en blanco para armar tu estudio</div>
-                </button>
-                <button onClick={function() { resetStudio("example"); }}
-                  style={{ padding: "10px", background: "rgba(var(--fg),0.05)", border: "1px solid rgba(var(--fg),0.12)", borderRadius: 6,
-                    color: "rgb(var(--fg))", fontSize: 12, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
-                  Cargar estudio de ejemplo
-                  <div style={{ fontSize: 10, color: "rgba(var(--fg),0.5)", marginTop: 2 }}>{DEFAULT_DEVICES.length} equipos (Hapax, MRCC, Octatrack, MOTU...)</div>
-                </button>
-                <button onClick={function() { setShowReset(false); }}
-                  style={{ padding: "8px", background: "transparent", border: "1px solid rgba(var(--fg),0.1)", borderRadius: 6,
-                    color: "rgba(var(--fg),0.5)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cancelar</button>
+          {/* Setups Modal */}
+          {showSetups ? (function() {
+            var rowSt = { display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: "rgba(var(--fg),0.03)",
+              border: "1px solid rgba(var(--fg),0.07)", borderRadius: 7 };
+            var countOf = function(d) {
+              var n = (d.devices || []).length, c = (d.connections || []).length, pg = (d.pages || []).length;
+              return n + " equipos · " + c + " cables" + (pg > 1 ? " · " + pg + " paginas" : "");
+            };
+            var renderRow = function(st) {
+              return (
+                <div key={st.id} style={rowSt}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: "rgb(var(--fg))", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {st.builtin ? "" : "★ "}{st.name}
+                    </div>
+                    <div style={{ color: "rgba(var(--fg),0.5)", fontSize: 9, marginTop: 2 }}>
+                      {st.builtin ? "Incluido · " + st.desc : st.date + " · " + countOf(st.data)}
+                    </div>
+                  </div>
+                  <button onClick={function() { loadSetup(st); }}
+                    style={btnStyle("rgba(0,206,201,0.15)", "rgba(0,206,201,0.3)", "var(--teal-ink)")}>Cargar</button>
+                  {st.builtin ? null : (
+                    <button onClick={function() { renameSetup(st.id); }} aria-label={"Renombrar " + st.name} title="Renombrar"
+                      style={Object.assign(btnStyle("transparent", "rgba(var(--fg),0.1)", "var(--note-ink)"), { padding: "5px 8px" })}>✎</button>
+                  )}
+                  {st.builtin ? null : (
+                    <button onClick={function() { deleteSetup(st.id); }} aria-label={"Borrar " + st.name} title="Borrar"
+                      style={Object.assign(btnStyle("rgba(255,80,80,0.1)", "rgba(255,80,80,0.2)", "var(--danger-ink)"), { padding: "5px 8px" })}>×</button>
+                  )}
+                </div>
+              );
+            };
+            return (
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+                background: "rgba(var(--shade),calc(0.7 * var(--shade-k)))", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}
+                onClick={function() { setShowSetups(false); }}>
+                <div role="dialog" aria-label="Setups" onClick={function(e) { e.stopPropagation(); }}
+                  style={{ background: "rgba(var(--node),0.99)", border: "1px solid rgba(var(--note-rgb),calc(0.3 * var(--note-k)))", borderRadius: 12,
+                    padding: 22, width: 480, maxHeight: "80vh", display: "flex", flexDirection: "column", gap: 12 }}>
+                  <h3 style={{ color: "rgb(var(--fg))", margin: 0, fontSize: 14, fontFamily: "inherit" }}>★ Setups</h3>
+                  <p style={{ color: "rgba(var(--fg),0.5)", margin: 0, fontSize: 11, lineHeight: 1.5 }}>
+                    Puntos de partida: estudio completo con equipos, cables, notas, paginas y categorias.
+                    Cargar uno reemplaza el estudio actual (Ctrl+Z lo deshace).
+                  </p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input placeholder="Nombre (ej. Setup Jam, Setup DAW)" value={setupName}
+                      onChange={function(e) { setSetupName(e.target.value); }}
+                      onKeyDown={function(e) { if (e.key === "Enter") saveSetup(setupName); }}
+                      style={Object.assign({}, inputSt, { flex: 1, fontSize: 12, padding: "7px 10px" })} />
+                    <button onClick={function() { saveSetup(setupName); }}
+                      style={Object.assign(btnStyle("rgba(var(--note-rgb),calc(0.15 * var(--note-k)))", "rgba(var(--note-rgb),calc(0.4 * var(--note-k)))", "var(--note-ink)"),
+                        { whiteSpace: "nowrap", fontWeight: 600 })}>Guardar actual</button>
+                  </div>
+                  <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                    {setups.length > 0 ? (
+                      <div style={{ color: "rgba(var(--fg),0.45)", fontSize: 9, letterSpacing: 1 }}>MIS SETUPS</div>
+                    ) : null}
+                    {setups.slice().reverse().map(renderRow)}
+                    <div style={{ color: "rgba(var(--fg),0.45)", fontSize: 9, letterSpacing: 1, marginTop: 4 }}>INCLUIDOS</div>
+                    {BUILTIN_SETUPS.map(renderRow)}
+                  </div>
+                  <button onClick={function() { setShowSetups(false); }}
+                    style={{ padding: "8px", background: "rgba(var(--fg),0.06)", border: "1px solid rgba(var(--fg),0.1)", borderRadius: 6,
+                      color: "rgba(var(--fg),0.5)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cerrar</button>
+                </div>
               </div>
-            </div>
-          ) : null}
+            );
+          })() : null}
 
           {/* Toast */}
           {toastMsg ? (

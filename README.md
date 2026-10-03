@@ -22,6 +22,7 @@ Herramienta visual e interactiva para mapear el ruteo de audio, MIDI, CV y digit
 - **Plantillas de dispositivo**: en "Nuevo dispositivo" elige una plantilla (tus plantillas ★ o los equipos incluidos) para rellenar nombre, categoría, color, puertos y páginas del módulo; guarda con "★ Plantilla" o click derecho en un nodo → "Guardar como plantilla". Se guardan aparte y sobreviven a Reset
 - **Categorías propias**: en el selector de tipo, "＋ Nueva categoría…" con nombre e ícono (emoji o símbolo); también se puede cambiar la categoría al editar un dispositivo; las categorías propias se renombran (✎, nombre e ícono) o borran (×, sus dispositivos pasan a "synth") junto al selector
 - **Generar N puertos** de golpe (ej. 8 × "MIDI Out" → MIDI Out 1..8, la numeración continúa)
+- **Setups** (plantillas de estudio): guarda el estudio completo (equipos, cables, notas, páginas, categorías) como punto de partida y cárgalo cuando quieras; incluye "Estudio de ejemplo"
 - **Versiones/Snapshots** guardados internamente para comparar configuraciones
 - **Exportar/Importar** vía JSON (copiar y pegar)
 - **Exportar CSV**: patch list (un cable por fila) + inventario de puertos
@@ -64,7 +65,7 @@ Solo abre `index.html` en tu navegador (Chrome, Firefox, Edge).
 | Deshacer / Rehacer | Ctrl+Z / Ctrl+Shift+Z (o Ctrl+Y) |
 | Borrar selección | Delete / Backspace |
 | Cerrar ventanas / deseleccionar | Esc |
-| Reset | Elige "Vaciar todo" (lienzo en blanco) o "Cargar estudio de ejemplo"; conserva categorías, plantillas, versiones y layouts; Ctrl+Z lo deshace |
+| Reset | Vacía todo (lienzo en blanco); conserva categorías, plantillas, setups, versiones y layouts; Ctrl+Z lo deshace |
 | Editar conexión | Click en el cable |
 
 ## Datos
