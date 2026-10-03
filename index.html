@@ -676,7 +676,7 @@
       // ── Registrar historial ──
       useEffect(function() {
         var h = hist.current;
-        var cur = { devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages };
+        var cur = { devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages, customTypes: customTypes };
         if (!h.ready) {
           if (devices.length > 0) h.ready = true;
           h.prev = cur;
@@ -693,7 +693,7 @@
         clearTimeout(h.timer);
         h.timer = setTimeout(function() { h.open = false; }, 500);
         h.prev = cur;
-      }, [devices, connections, stickyNotes, pages]);
+      }, [devices, connections, stickyNotes, pages, customTypes]);
 
       // Cierra la rafaga actual: la siguiente mutacion sera un paso de undo propio (12)
       function histBreak() {
@@ -711,12 +711,14 @@
         stopAnimation();
         var h = hist.current;
         var same = target.devices === h.prev.devices && target.connections === h.prev.connections &&
-          target.stickyNotes === h.prev.stickyNotes && target.pages === h.prev.pages;
+          target.stickyNotes === h.prev.stickyNotes && target.pages === h.prev.pages &&
+          target.customTypes === h.prev.customTypes;
         if (!same) h.skip = true;
         setDevices(target.devices);
         setConnections(target.connections);
         setStickyNotes(target.stickyNotes);
         setPages(target.pages || DEFAULT_PAGES);
+        setCustomTypes(target.customTypes || []);
         setSelected(null); setMultiSelect([]);
         setSelectedConn(null); setMultiSelectConn([]);
         setConnecting(null);
@@ -1167,33 +1169,89 @@
         setTypeDraft(null);
       }
 
+      function isCustomType(t) { return !!t && !TYPE_ICONS[t]; }
+
+      // Renombra una categoria propia (nombre y/o icono) y actualiza los dispositivos que la usan
+      function renameCustomType(onPick) {
+        var old = typeDraft.old;
+        var name = (typeDraft.name || "").trim();
+        if (!name) { showToast("Escribe un nombre para la categoria"); return; }
+        var clash = allTypes().find(function(t) { return t !== old && t.toLowerCase() === name.toLowerCase(); });
+        if (clash) { showToast("Ya existe la categoria \"" + clash + "\""); return; }
+        var icon = (typeDraft.icon || "").trim() || "●";
+        histBreak();
+        setCustomTypes(function(cs) {
+          var found = cs.some(function(c) { return c.name === old; });
+          var next = cs.map(function(c) { return c.name === old ? { name: name, icon: icon } : c; });
+          return found ? next : next.concat([{ name: name, icon: icon }]);
+        });
+        if (name !== old) {
+          setDevices(function(ds) { return ds.map(function(d) { return d.type === old ? Object.assign({}, d, { type: name }) : d; }); });
+          setNewDevice(function(d) { return d.type === old ? Object.assign({}, d, { type: name }) : d; });
+        }
+        onPick(name);
+        setTypeDraft(null);
+        showToast("Categoria actualizada: " + name);
+      }
+
+      // Borra una categoria propia; los dispositivos que la usaban pasan a "synth"
+      function deleteCustomType(t, onPick) {
+        var n = devices.filter(function(d) { return d.type === t; }).length;
+        var msg = "Borrar la categoria \"" + t + "\"?" + (n > 0 ? "\n" + n + " dispositivo(s) pasaran a \"synth\"." : "");
+        if (!window.confirm(msg)) return;
+        histBreak();
+        setCustomTypes(function(cs) { return cs.filter(function(c) { return c.name !== t; }); });
+        if (n > 0) setDevices(function(ds) { return ds.map(function(d) { return d.type === t ? Object.assign({}, d, { type: "synth" }) : d; }); });
+        setNewDevice(function(d) { return d.type === t ? Object.assign({}, d, { type: "synth" }) : d; });
+        onPick("synth");
+        setTypeDraft(null);
+        showToast("Categoria borrada: " + t);
+      }
+
       // Selector de categoria con opcion "+ Nueva categoria..." (fila inline para nombre e icono)
       function renderTypePicker(value, onPick, target) {
         var open = typeDraft && typeDraft.target === target;
+        var renaming = open && typeDraft.mode === "rename";
+        var submit = function() { if (renaming) renameCustomType(onPick); else addCustomType(onPick); };
+        var smallBtn = function(color) {
+          return Object.assign(btnStyle("transparent", "rgba(var(--fg),0.1)", color), { padding: "5px 8px" });
+        };
         return (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-            <select value={open ? "__new" : value}
-              onChange={function(e) {
-                var v = e.target.value;
-                if (v === "__new") setTypeDraft({ name: "", icon: "", target: target });
-                else { setTypeDraft(null); onPick(v); }
-              }}
-              style={Object.assign({}, selectSt, { width: "100%" })}>
-              {allTypes().map(function(t) { return <option key={t} value={t}>{typeIcon(t) + "  " + t}</option>; })}
-              <option value="__new">＋ Nueva categoria...</option>
-            </select>
+            <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+              <select value={open && !renaming ? "__new" : value}
+                onChange={function(e) {
+                  var v = e.target.value;
+                  if (v === "__new") setTypeDraft({ mode: "new", name: "", icon: "", target: target });
+                  else { setTypeDraft(null); onPick(v); }
+                }}
+                style={Object.assign({}, selectSt, { flex: 1, minWidth: 0 })}>
+                {allTypes().map(function(t) { return <option key={t} value={t}>{typeIcon(t) + "  " + t}</option>; })}
+                <option value="__new">＋ Nueva categoria...</option>
+              </select>
+              {isCustomType(value) && !open ? (
+                <button title="Renombrar categoria / cambiar icono" aria-label="Renombrar categoria"
+                  onClick={function() { setTypeDraft({ mode: "rename", old: value, name: value, icon: typeIcon(value), target: target }); }}
+                  style={smallBtn("var(--note-ink)")}>✎</button>
+              ) : null}
+              {isCustomType(value) && !open ? (
+                <button title="Borrar categoria" aria-label="Borrar categoria"
+                  onClick={function() { deleteCustomType(value, onPick); }}
+                  style={smallBtn("var(--danger-ink)")}>×</button>
+              ) : null}
+            </div>
             {open ? (
               <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
                 <input autoFocus placeholder="Nombre (ej. drum-synth)" value={typeDraft.name}
                   onChange={function(e) { var v = e.target.value; setTypeDraft(function(t) { return Object.assign({}, t, { name: v }); }); }}
-                  onKeyDown={function(e) { if (e.key === "Enter") addCustomType(onPick); else if (e.key === "Escape") { e.stopPropagation(); setTypeDraft(null); } }}
+                  onKeyDown={function(e) { if (e.key === "Enter") submit(); else if (e.key === "Escape") { e.stopPropagation(); setTypeDraft(null); } }}
                   style={Object.assign({}, inputSt, { flex: 1, minWidth: 0 })} />
                 <input placeholder="●" title="Icono (un simbolo o emoji)" maxLength={2} value={typeDraft.icon}
                   onChange={function(e) { var v = e.target.value; setTypeDraft(function(t) { return Object.assign({}, t, { icon: v }); }); }}
-                  onKeyDown={function(e) { if (e.key === "Enter") addCustomType(onPick); }}
+                  onKeyDown={function(e) { if (e.key === "Enter") submit(); }}
                   style={Object.assign({}, inputSt, { width: 38, textAlign: "center" })} />
-                <button onClick={function() { addCustomType(onPick); }}
-                  style={btnStyle("rgba(0,206,201,0.15)", "rgba(0,206,201,0.4)", "var(--teal-ink)")}>Agregar</button>
+                <button onClick={submit}
+                  style={btnStyle("rgba(0,206,201,0.15)", "rgba(0,206,201,0.4)", "var(--teal-ink)")}>{renaming ? "Guardar" : "Agregar"}</button>
                 <button onClick={function() { setTypeDraft(null); }} aria-label="Cancelar"
                   style={Object.assign(btnStyle("transparent", "rgba(var(--fg),0.1)", "rgba(var(--fg),0.5)"), { padding: "5px 8px" })}>×</button>
               </div>
