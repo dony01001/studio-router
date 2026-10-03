@@ -25,7 +25,7 @@ git -c credential.helper= -c "credential.helper=!gh auth git-credential" push
 
 ## Estado (2026-10-03)
 - PR #1 (undo/redo, vistas, páginas, ADAT, tema, plantillas, setups…) **mergeado a `main`** (`1b33cd5`) y publicado en GitHub Pages.
-- Trabajar desde esta carpeta (`D:iles\dev\studio-router`). Existe otro clon viejo del repo en otra carpeta (`studio-router/repo`) y un `index.html` suelto en `claude code/files/`: ambos desactualizados, no usarlos.
+- Trabajar desde esta carpeta (`D:\files\dev\studio-router`). Existe otro clon viejo del repo en otra carpeta (`studio-router/repo`) y un `index.html` suelto en `claude code/files/`: ambos desactualizados, no usarlos.
 - Pendiente de decidir: si la primera carga (sin datos guardados) debe empezar vacía o con el "Estudio de ejemplo" (hoy: ejemplo).
 
 ## Mapa de `index.html`
