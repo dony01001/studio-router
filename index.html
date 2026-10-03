@@ -539,7 +539,10 @@
         if (dev.pages && !Array.isArray(dev.pages)) delete dev.pages;
         if (dev.pages) dev.pages = dev.pages.filter(function(pg) { return pg && pg.id; });
       });
-      return { devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages };
+      var customTypes = (Array.isArray(d.customTypes) ? d.customTypes : []).filter(function(t) {
+        return t && typeof t.name === "string" && t.name.trim();
+      }).map(function(t) { return { name: t.name.trim(), icon: t.icon || "●" }; });
+      return { devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages, customTypes: customTypes };
     }
 
     function downloadText(filename, text, type) {
@@ -579,6 +582,8 @@
       var [pages, setPages] = useState(DEFAULT_PAGES);   // paginas globales de cables (en historial)
       var [curPage, setCurPage] = useState("p1");
       var [modPage, setModPage] = useState({});          // pagina activa por modulo: {devId: pageId}
+      var [customTypes, setCustomTypes] = useState([]);  // categorias creadas por el usuario: [{name, icon}]
+      var [typeDraft, setTypeDraft] = useState(null);    // fila "nueva categoria" abierta: {name, icon, target}
       var [showAdd, setShowAdd] = useState(false);
       var [newDevice, setNewDevice] = useState({ name: "", type: "synth", color: "#00B894" });
       var [newPorts, setNewPorts] = useState([]);
@@ -646,6 +651,7 @@
             setConnections(nd.connections);
             setStickyNotes(nd.stickyNotes);
             setPages(nd.pages);
+            setCustomTypes(nd.customTypes);
             if (d.curPage) setCurPage(d.curPage);
             if (d.modPage && typeof d.modPage === "object") setModPage(d.modPage);
             if (d.pan) setPan(d.pan);
@@ -736,6 +742,7 @@
       var modalOpen = !!(showAdd || editingPorts || showExportModal || showImportModal || showSnapshots || showUserLayouts);
 
       function closeModals() {
+        setTypeDraft(null);
         setShowAdd(false); setAddPos(null);
         setEditingPorts(null);
         setShowExportModal(false);
@@ -825,10 +832,10 @@
       useEffect(function() {
         if (!loaded.current || !hist.current.ready) return;
         savePayload.current = { devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages,
-          curPage: curPage, modPage: modPage, pan: pan, zoom: zoom };
+          curPage: curPage, modPage: modPage, customTypes: customTypes, pan: pan, zoom: zoom };
         var t = setTimeout(flushSave, 300);
         return function() { clearTimeout(t); };
-      }, [devices, connections, stickyNotes, pages, curPage, modPage, pan, zoom]);
+      }, [devices, connections, stickyNotes, pages, curPage, modPage, customTypes, pan, zoom]);
       useEffect(function() {
         window.addEventListener("beforeunload", flushSave);
         return function() { window.removeEventListener("beforeunload", flushSave); };
@@ -1131,6 +1138,68 @@
             return !connPageOk(c) || (ids.indexOf(c.from.device) < 0 && ids.indexOf(c.to.device) < 0);
           });
         });
+      }
+
+      // ── Categorias de dispositivo (fijas + creadas por el usuario + las que traigan datos importados) ──
+      function typeIcon(t) {
+        if (TYPE_ICONS[t]) return TYPE_ICONS[t];
+        var c = customTypes.find(function(x) { return x.name === t; });
+        return c ? c.icon : "●";
+      }
+
+      function allTypes() {
+        var list = Object.keys(TYPE_ICONS);
+        customTypes.forEach(function(c) { if (list.indexOf(c.name) < 0) list.push(c.name); });
+        devices.forEach(function(d) { if (d.type && list.indexOf(d.type) < 0) list.push(d.type); });
+        return list;
+      }
+
+      function addCustomType(onPick) {
+        var name = (typeDraft && typeDraft.name || "").trim();
+        if (!name) { showToast("Escribe un nombre para la categoria"); return; }
+        var existing = allTypes().find(function(t) { return t.toLowerCase() === name.toLowerCase(); });
+        if (!existing) {
+          var icon = (typeDraft.icon || "").trim() || "●";
+          setCustomTypes(function(cs) { return cs.concat([{ name: name, icon: icon }]); });
+          showToast("Categoria creada: " + name);
+        }
+        onPick(existing || name);
+        setTypeDraft(null);
+      }
+
+      // Selector de categoria con opcion "+ Nueva categoria..." (fila inline para nombre e icono)
+      function renderTypePicker(value, onPick, target) {
+        var open = typeDraft && typeDraft.target === target;
+        return (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+            <select value={open ? "__new" : value}
+              onChange={function(e) {
+                var v = e.target.value;
+                if (v === "__new") setTypeDraft({ name: "", icon: "", target: target });
+                else { setTypeDraft(null); onPick(v); }
+              }}
+              style={Object.assign({}, selectSt, { width: "100%" })}>
+              {allTypes().map(function(t) { return <option key={t} value={t}>{typeIcon(t) + "  " + t}</option>; })}
+              <option value="__new">＋ Nueva categoria...</option>
+            </select>
+            {open ? (
+              <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                <input autoFocus placeholder="Nombre (ej. drum-synth)" value={typeDraft.name}
+                  onChange={function(e) { var v = e.target.value; setTypeDraft(function(t) { return Object.assign({}, t, { name: v }); }); }}
+                  onKeyDown={function(e) { if (e.key === "Enter") addCustomType(onPick); else if (e.key === "Escape") { e.stopPropagation(); setTypeDraft(null); } }}
+                  style={Object.assign({}, inputSt, { flex: 1, minWidth: 0 })} />
+                <input placeholder="●" title="Icono (un simbolo o emoji)" maxLength={2} value={typeDraft.icon}
+                  onChange={function(e) { var v = e.target.value; setTypeDraft(function(t) { return Object.assign({}, t, { icon: v }); }); }}
+                  onKeyDown={function(e) { if (e.key === "Enter") addCustomType(onPick); }}
+                  style={Object.assign({}, inputSt, { width: 38, textAlign: "center" })} />
+                <button onClick={function() { addCustomType(onPick); }}
+                  style={btnStyle("rgba(0,206,201,0.15)", "rgba(0,206,201,0.4)", "var(--teal-ink)")}>Agregar</button>
+                <button onClick={function() { setTypeDraft(null); }} aria-label="Cancelar"
+                  style={Object.assign(btnStyle("transparent", "rgba(var(--fg),0.1)", "rgba(var(--fg),0.5)"), { padding: "5px 8px" })}>×</button>
+              </div>
+            ) : null}
+          </div>
+        );
       }
 
       // ── Paginas globales ──
@@ -1721,7 +1790,7 @@
       function saveSnapshot(name) {
         var timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
         var snap = { id: "snap-" + Date.now(), name: name || timestamp, date: timestamp,
-          data: { version: 3, devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages } };
+          data: { version: 3, devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages, customTypes: customTypes } };
         var updated = savedSnapshots.concat([snap]);
         setSavedSnapshots(updated);
         try { localStorage.setItem("studio-router-snapshots", JSON.stringify(updated)); } catch(e) {}
@@ -1736,6 +1805,7 @@
         setConnections(nd.connections);
         setStickyNotes(nd.stickyNotes);
         setPages(nd.pages);
+        if (nd.customTypes.length) setCustomTypes(nd.customTypes);
         setPan({ x: 60, y: 60 });
         setZoom(0.45);
         setShowSnapshots(false);
@@ -1750,7 +1820,7 @@
 
       function exportJSON() {
         if (!devices || devices.length === 0) { showToast("No hay dispositivos"); return; }
-        var data = JSON.stringify({ version: 3, devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages }, null, 2);
+        var data = JSON.stringify({ version: 3, devices: devices, connections: connections, stickyNotes: stickyNotes, pages: pages, customTypes: customTypes }, null, 2);
         setExportData(data);
         setShowExportModal(true);
       }
@@ -1770,6 +1840,7 @@
             setConnections(d.connections);
             setStickyNotes(d.stickyNotes);
             setPages(d.pages);
+            if (d.customTypes.length) setCustomTypes(d.customTypes);
             setPan({ x: 60, y: 60 });
             setZoom(0.45);
             setShowImportModal(false);
@@ -1875,10 +1946,11 @@
           interface: [], preamp: [], converter: [], clock: [],
           monitor: [], mic: [], tablet: [],
         };
+        customTypes.forEach(function(c) { if (!typeGroups[c.name]) typeGroups[c.name] = []; });
         devices.forEach(function(d) {
-          var grp = typeGroups[d.type];
-          if (!grp) grp = typeGroups.synth;
-          grp.push(d);
+          var key = d.type || "synth";
+          if (!typeGroups[key]) typeGroups[key] = [];
+          typeGroups[key].push(d);
         });
         var positions = {};
         var colX = 60;
@@ -2641,7 +2713,7 @@
                     <rect x={dev.x} y={dev.y} width={NODE_W} height={HEADER_H} rx={8} fill={dev.color + "18"} />
                     <rect x={dev.x} y={dev.y + HEADER_H - 1} width={NODE_W} height={2} fill={dev.color + "33"} />
                     <text x={dev.x + 12} y={dev.y + 18} fill={devInk} fontSize={16} fontFamily="inherit">
-                      {TYPE_ICONS[dev.type] || "●"}
+                      {typeIcon(dev.type)}
                     </text>
                     <text x={dev.x + 32} y={dev.y + 18} fill="rgb(var(--fg))" fontSize={12} fontWeight={700} fontFamily="inherit">{dev.name}</text>
                     <text x={dev.x + 32} y={dev.y + 32} fill="rgba(var(--fg),0.5)" fontSize={9} fontFamily="inherit">{dev.type}</text>
@@ -2923,6 +2995,14 @@
                       }}
                       style={{ width: 34, height: 30, border: "none", borderRadius: 4, cursor: "pointer", background: "transparent" }} />
                   </div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
+                    <span style={{ color: "rgba(var(--fg),0.5)", fontSize: 10, letterSpacing: 1 }}>CATEGORIA</span>
+                    {renderTypePicker(dev.type, function(t) {
+                      var did = editingPorts;
+                      histBreak();
+                      setDevices(function(ds) { return ds.map(function(d) { return d.id === did ? Object.assign({}, d, { type: t }) : d; }); });
+                    }, "edit:" + dev.id)}
+                  </div>
                   <div style={{ borderTop: "1px solid rgba(var(--fg),0.06)", paddingTop: 10, marginBottom: 8 }}>
                     {dev.ports.map(function(port, i) {
                       var hasConn = connections.some(function(c) {
@@ -3058,12 +3138,10 @@
                 <input placeholder="Nombre" value={newDevice.name}
                   onChange={function(e) { setNewDevice(function(d) { return Object.assign({}, d, { name: e.target.value }); }); }}
                   style={Object.assign({}, inputSt, { width: "100%", boxSizing: "border-box", marginBottom: 10, fontSize: 13 })} />
-                <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                  <select value={newDevice.type}
-                    onChange={function(e) { setNewDevice(function(d) { return Object.assign({}, d, { type: e.target.value }); }); }}
-                    style={Object.assign({}, selectSt, { flex: 1 })}>
-                    {Object.keys(TYPE_ICONS).map(function(t) { return <option key={t} value={t}>{t}</option>; })}
-                  </select>
+                <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "flex-start" }}>
+                  {renderTypePicker(newDevice.type, function(t) {
+                    setNewDevice(function(d) { return Object.assign({}, d, { type: t }); });
+                  }, "new")}
                   <input type="color" value={newDevice.color}
                     onChange={function(e) { setNewDevice(function(d) { return Object.assign({}, d, { color: e.target.value }); }); }}
                     style={{ width: 38, height: 32, border: "none", borderRadius: 4, cursor: "pointer", background: "transparent" }} />
