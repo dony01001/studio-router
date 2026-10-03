@@ -589,6 +589,7 @@
       var [showAdd, setShowAdd] = useState(false);
       var [newDevice, setNewDevice] = useState({ name: "", type: "synth", color: "#00B894" });
       var [newPorts, setNewPorts] = useState([]);
+      var [newPages, setNewPages] = useState([]);  // paginas de modulo que trae la plantilla elegida: ["Pagina 1", ...]
       var [editingDeviceNote, setEditingDeviceNote] = useState(null);
       var [editingPorts, setEditingPorts] = useState(null);
       var [dragPortIdx, setDragPortIdx] = useState(null);
@@ -1842,7 +1843,9 @@
         if (name === null || !name.trim()) return;
         name = name.trim();
         var tpl = { id: "tpl-" + Date.now(), name: name, type: src.type, typeIcon: typeIcon(src.type), color: src.color,
-          ports: src.ports.map(function(p) { return { name: p.name, dir: p.dir, kind: p.kind }; }) };
+          ports: src.ports.map(function(p) { return { name: p.name, dir: p.dir, kind: p.kind }; }),
+          pages: (src.pages || []).map(function(pg) { return typeof pg === "string" ? pg : pg.name; }) };
+        if (tpl.pages.length < 2) delete tpl.pages;
         var same = templates.find(function(t) { return t.name.toLowerCase() === name.toLowerCase(); });
         if (same) {
           if (!window.confirm("Ya existe la plantilla \"" + same.name + "\". Reemplazarla?")) return;
@@ -1851,7 +1854,7 @@
         } else {
           persistTemplates(templates.concat([tpl]));
         }
-        showToast("Plantilla guardada: " + name + " (" + tpl.ports.length + " puertos)");
+        showToast("Plantilla guardada: " + name + " (" + tpl.ports.length + " puertos" + (tpl.pages ? ", " + tpl.pages.length + " paginas" : "") + ")");
       }
 
       function deleteTemplate(id) {
@@ -1865,7 +1868,7 @@
       // Rellena el formulario de "Nuevo dispositivo" con una plantilla
       function applyTemplate(id) {
         setTplPick(id);
-        if (!id) { setNewDevice({ name: "", type: "synth", color: "#00B894" }); setNewPorts([]); return; }
+        if (!id) { setNewDevice({ name: "", type: "synth", color: "#00B894" }); setNewPorts([]); setNewPages([]); return; }
         var t = findTemplate(id);
         if (!t) return;
         // Si la plantilla usa una categoria propia que ya no existe, se recrea con su icono
@@ -1874,6 +1877,7 @@
         }
         setNewDevice({ name: t.name, type: t.type, color: t.color });
         setNewPorts(t.ports.map(function(p) { return { name: p.name, dir: p.dir, kind: p.kind }; }));
+        setNewPages(Array.isArray(t.pages) ? t.pages.slice() : []);
       }
 
       function addDevice() {
@@ -1886,10 +1890,12 @@
             id: id, name: newDevice.name.trim(), type: newDevice.type,
             color: newDevice.color, x: center.x, y: center.y,
             ports: newPorts.map(function(p, i) { return { id: id + "-p" + i, name: p.name, dir: p.dir, kind: p.kind }; }),
+            pages: newPages.length > 1 ? newPages.map(function(n, i) { return { id: i === 0 ? "mp1" : "mp" + (i + 1), name: n }; }) : undefined,
           }]);
         });
         setNewDevice({ name: "", type: "synth", color: "#00B894" });
         setNewPorts([]);
+        setNewPages([]);
         setTplPick("");
         setShowAdd(false);
         setAddPos(null);
@@ -3265,7 +3271,7 @@
                     {templates.length > 0 ? (
                       <optgroup label="Mis plantillas">
                         {templates.map(function(t) {
-                          return <option key={t.id} value={t.id}>{"★ " + t.name + " (" + t.ports.length + ")"}</option>;
+                          return <option key={t.id} value={t.id}>{"★ " + t.name + " (" + t.ports.length + (t.pages ? " · " + t.pages.length + " pag" : "") + ")"}</option>;
                         })}
                       </optgroup>
                     ) : null}
@@ -3291,6 +3297,25 @@
                     onChange={function(e) { setNewDevice(function(d) { return Object.assign({}, d, { color: e.target.value }); }); }}
                     style={{ width: 38, height: 32, border: "none", borderRadius: 4, cursor: "pointer", background: "transparent" }} />
                 </div>
+                {newPages.length > 1 ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ color: "rgba(var(--fg),0.4)", fontSize: 10, marginBottom: 6, letterSpacing: 1 }}>PAGINAS DEL MODULO</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                      {newPages.map(function(pg, i) {
+                        return (
+                          <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 6px 3px 8px",
+                            borderRadius: 4, background: "rgba(var(--fg),0.06)", border: "1px solid rgba(var(--fg),0.12)",
+                            color: "rgba(var(--fg),0.8)", fontSize: 10 }}>
+                            {(i + 1) + ". " + pg}
+                            <button aria-label={"Quitar " + pg} title="Quitar pagina"
+                              onClick={function() { setNewPages(function(ps) { return ps.filter(function(_, j) { return j !== i; }); }); }}
+                              style={{ background: "none", border: "none", color: "var(--danger-ink)", cursor: "pointer", fontSize: 12, padding: 0 }}>×</button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
                 <div style={{ color: "rgba(var(--fg),0.4)", fontSize: 10, marginBottom: 8, letterSpacing: 1 }}>PUERTOS</div>
                 {newPorts.map(function(p, i) {
                   return (
@@ -3336,7 +3361,7 @@
                   <button title="Guardar nombre, categoria, color y puertos como plantilla"
                     onClick={function() {
                       if (newPorts.length === 0 && !newDevice.name.trim()) { showToast("Agrega un nombre o puertos primero"); return; }
-                      saveTemplate({ name: newDevice.name, type: newDevice.type, color: newDevice.color, ports: newPorts });
+                      saveTemplate({ name: newDevice.name, type: newDevice.type, color: newDevice.color, ports: newPorts, pages: newPages });
                     }}
                     style={{ padding: "8px 12px", background: "rgba(var(--note-rgb),calc(0.12 * var(--note-k)))",
                       border: "1px solid rgba(var(--note-rgb),calc(0.4 * var(--note-k)))", borderRadius: 6, color: "var(--note-ink)",
@@ -3345,7 +3370,7 @@
                     style={{ flex: 1, padding: "8px", background: "rgba(0,206,201,0.2)",
                       border: "1px solid var(--teal-ink)", borderRadius: 6, color: "var(--teal-ink)",
                       fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>Crear</button>
-                  <button onClick={function() { setShowAdd(false); setTplPick(""); }}
+                  <button onClick={function() { setShowAdd(false); setTplPick(""); setNewPages([]); }}
                     style={{ padding: "8px 14px", background: "rgba(var(--fg),0.06)",
                       border: "1px solid rgba(var(--fg),0.1)", borderRadius: 6,
                       color: "rgba(var(--fg),0.4)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cancelar</button>

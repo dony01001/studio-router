@@ -19,7 +19,7 @@ Herramienta visual e interactiva para mapear el ruteo de audio, MIDI, CV y digit
 - **Duplicar** nodos seleccionados con sus cables internos (Ctrl+D o ícono ⧉)
 - **Notas** en cada dispositivo y notas libres (sticky notes) en el canvas
 - **Editor de puertos** para agregar, quitar y modificar puertos de cada módulo
-- **Plantillas de dispositivo**: en "Nuevo dispositivo" elige una plantilla (tus plantillas ★ o los equipos incluidos) para rellenar nombre, categoría, color y puertos; guarda con "★ Plantilla" o click derecho en un nodo → "Guardar como plantilla". Se guardan aparte y sobreviven a Reset
+- **Plantillas de dispositivo**: en "Nuevo dispositivo" elige una plantilla (tus plantillas ★ o los equipos incluidos) para rellenar nombre, categoría, color, puertos y páginas del módulo; guarda con "★ Plantilla" o click derecho en un nodo → "Guardar como plantilla". Se guardan aparte y sobreviven a Reset
 - **Categorías propias**: en el selector de tipo, "＋ Nueva categoría…" con nombre e ícono (emoji o símbolo); también se puede cambiar la categoría al editar un dispositivo; las categorías propias se renombran (✎, nombre e ícono) o borran (×, sus dispositivos pasan a "synth") junto al selector
 - **Generar N puertos** de golpe (ej. 8 × "MIDI Out" → MIDI Out 1..8, la numeración continúa)
 - **Versiones/Snapshots** guardados internamente para comparar configuraciones
