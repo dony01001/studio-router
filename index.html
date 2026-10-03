@@ -608,6 +608,7 @@
       var [showLayouts, setShowLayouts] = useState(false);
       var [userLayouts, setUserLayouts] = useState([]);
       var [showUserLayouts, setShowUserLayouts] = useState(false);
+      var [showReset, setShowReset] = useState(false);
       var [newLayoutName, setNewLayoutName] = useState("");
       var [hoveredConn, setHoveredConn] = useState(null);
       var [cableStyle, setCableStyle] = useState("bezier");
@@ -748,7 +749,7 @@
         applyHistory(h.future.pop());
       }
 
-      var modalOpen = !!(showAdd || editingPorts || showExportModal || showImportModal || showSnapshots || showUserLayouts);
+      var modalOpen = !!(showAdd || editingPorts || showExportModal || showImportModal || showSnapshots || showUserLayouts || showReset);
 
       function closeModals() {
         setTypeDraft(null);
@@ -758,6 +759,7 @@
         setShowImportModal(false);
         setShowSnapshots(false);
         setShowUserLayouts(false);
+        setShowReset(false);
         setEditingDeviceNote(null);
       }
 
@@ -1982,11 +1984,13 @@
         }
       }
 
-      function resetToDefaults() {
-        if (!window.confirm("Restaurar el estudio por defecto? (se puede deshacer con Ctrl+Z)")) return;
+      // Reset: "empty" deja el lienzo vacio; "example" carga el estudio de ejemplo.
+      // Categorias propias y plantillas se conservan. Se puede deshacer con Ctrl+Z.
+      function resetStudio(mode) {
+        setShowReset(false);
         histBreak();
         stopAnimation();
-        setDevices(DEFAULT_DEVICES);
+        setDevices(mode === "example" ? DEFAULT_DEVICES : []);
         setConnections([]);
         setStickyNotes([]);
         setPages(DEFAULT_PAGES);
@@ -1994,10 +1998,11 @@
         setModPage({});
         setMultiSelect([]);
         setMultiSelectConn([]);
+        setSelected(null);
+        setSelectedConn(null);
         setPan({ x: 60, y: 60 });
-        setZoom(0.45);
-        try { localStorage.removeItem("studio-router-data"); } catch(e) {}
-        showToast("Reset completo");
+        setZoom(mode === "example" ? 0.45 : 1);
+        showToast(mode === "example" ? "Estudio de ejemplo cargado (Ctrl+Z para deshacer)" : "Lienzo vacio (Ctrl+Z para deshacer)");
       }
 
       function animateTo(targetPositions) {
@@ -2471,7 +2476,7 @@
               style={btnStyle(showCableStyle ? "rgba(0,206,201,0.15)" : "rgba(var(--fg),0.05)", showCableStyle ? "var(--teal-ink)" : "rgba(var(--fg),0.1)", showCableStyle ? "var(--teal-ink)" : "rgba(var(--fg),0.4)")}>
               Cables
             </button>
-            <button onClick={resetToDefaults} style={btnStyle("rgba(255,80,80,0.08)","rgba(255,80,80,0.2)","var(--red-soft)")}>
+            <button onClick={function() { setShowReset(true); }} style={btnStyle("rgba(255,80,80,0.08)","rgba(255,80,80,0.2)","var(--red-soft)")}>
               Reset
             </button>
             <button onClick={toggleTheme} title={theme === "dark" ? "Tema claro" : "Tema oscuro"} aria-label="Cambiar tema"
@@ -3607,6 +3612,38 @@
                     color: "rgba(var(--fg),0.4)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
                   Cerrar
                 </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Reset Modal */}
+          {showReset ? (
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+              background: "rgba(var(--shade),calc(0.7 * var(--shade-k)))", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}
+              onClick={function() { setShowReset(false); }}>
+              <div role="dialog" aria-label="Reset" onClick={function(e) { e.stopPropagation(); }}
+                style={{ background: "rgba(var(--node),0.99)", border: "1px solid rgba(var(--fg),0.1)", borderRadius: 12,
+                  padding: 22, width: 400, display: "flex", flexDirection: "column", gap: 10 }}>
+                <h3 style={{ color: "rgb(var(--fg))", margin: 0, fontSize: 14, fontFamily: "inherit" }}>Reset</h3>
+                <p style={{ color: "rgba(var(--fg),0.55)", margin: 0, fontSize: 11, lineHeight: 1.5 }}>
+                  Se borran dispositivos, cables, notas y paginas. Tus categorias, plantillas, versiones y layouts se conservan.
+                  Se puede deshacer con Ctrl+Z.
+                </p>
+                <button onClick={function() { resetStudio("empty"); }}
+                  style={{ padding: "10px", background: "rgba(255,80,80,0.12)", border: "1px solid rgba(255,80,80,0.4)", borderRadius: 6,
+                    color: "var(--danger-ink)", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600, textAlign: "left" }}>
+                  Vaciar todo
+                  <div style={{ fontWeight: 400, fontSize: 10, color: "rgba(var(--fg),0.5)", marginTop: 2 }}>Lienzo en blanco para armar tu estudio</div>
+                </button>
+                <button onClick={function() { resetStudio("example"); }}
+                  style={{ padding: "10px", background: "rgba(var(--fg),0.05)", border: "1px solid rgba(var(--fg),0.12)", borderRadius: 6,
+                    color: "rgb(var(--fg))", fontSize: 12, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                  Cargar estudio de ejemplo
+                  <div style={{ fontSize: 10, color: "rgba(var(--fg),0.5)", marginTop: 2 }}>{DEFAULT_DEVICES.length} equipos (Hapax, MRCC, Octatrack, MOTU...)</div>
+                </button>
+                <button onClick={function() { setShowReset(false); }}
+                  style={{ padding: "8px", background: "transparent", border: "1px solid rgba(var(--fg),0.1)", borderRadius: 6,
+                    color: "rgba(var(--fg),0.5)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cancelar</button>
               </div>
             </div>
           ) : null}

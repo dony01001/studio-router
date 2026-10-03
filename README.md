@@ -64,6 +64,7 @@ Solo abre `index.html` en tu navegador (Chrome, Firefox, Edge).
 | Deshacer / Rehacer | Ctrl+Z / Ctrl+Shift+Z (o Ctrl+Y) |
 | Borrar selección | Delete / Backspace |
 | Cerrar ventanas / deseleccionar | Esc |
+| Reset | Elige "Vaciar todo" (lienzo en blanco) o "Cargar estudio de ejemplo"; conserva categorías, plantillas, versiones y layouts; Ctrl+Z lo deshace |
 | Editar conexión | Click en el cable |
 
 ## Datos
