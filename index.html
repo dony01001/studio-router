@@ -583,6 +583,8 @@
       var [curPage, setCurPage] = useState("p1");
       var [modPage, setModPage] = useState({});          // pagina activa por modulo: {devId: pageId}
       var [customTypes, setCustomTypes] = useState([]);  // categorias creadas por el usuario: [{name, icon}]
+      var [templates, setTemplates] = useState([]);      // plantillas de dispositivo del usuario (independientes del estudio)
+      var [tplPick, setTplPick] = useState("");          // plantilla elegida en "Nuevo dispositivo"
       var [typeDraft, setTypeDraft] = useState(null);    // fila "nueva categoria" abierta: {name, icon, target}
       var [showAdd, setShowAdd] = useState(false);
       var [newDevice, setNewDevice] = useState({ name: "", type: "synth", color: "#00B894" });
@@ -641,6 +643,10 @@
         try {
           var uls = localStorage.getItem("studio-router-user-layouts");
           if (uls) setUserLayouts(JSON.parse(uls));
+        } catch(e) {}
+        try {
+          var tpl = localStorage.getItem("studio-router-templates");
+          if (tpl) setTemplates(JSON.parse(tpl).filter(function(t) { return t && t.id && Array.isArray(t.ports); }));
         } catch(e) {}
         try {
           var raw = localStorage.getItem("studio-router-data");
@@ -1435,6 +1441,7 @@
             items.push({ label: "Editar puertos...", icon: "⚙", run: function() { setEditingPorts(m.id); } });
             items.push({ label: "Nota...", icon: "✎", run: function() { setEditingDeviceNote(m.id); } });
             items.push({ label: "Duplicar", icon: "⧉", hint: "Ctrl+D", run: duplicateSelection });
+            items.push({ label: "Guardar como plantilla", icon: "★", run: function() { saveTemplate(dev); } });
             items.push({ label: "Seleccionar conectados", icon: "⇆", disabled: nConn === 0, run: function() {
               var set = [m.id];
               pageConns.forEach(function(c) {
@@ -1813,6 +1820,62 @@
         );
       }
 
+      // ── Plantillas de dispositivo ──
+      // Incluidas: los equipos del estudio por defecto. Del usuario: guardadas en localStorage aparte.
+      var BUILTIN_TEMPLATES = DEFAULT_DEVICES.map(function(d) {
+        return { id: "builtin:" + d.id, name: d.name, type: d.type, color: d.color,
+          ports: d.ports.map(function(p) { return { name: p.name, dir: p.dir, kind: p.kind }; }), builtin: true };
+      });
+
+      function persistTemplates(list) {
+        setTemplates(list);
+        try { localStorage.setItem("studio-router-templates", JSON.stringify(list)); } catch(e) {}
+      }
+
+      function findTemplate(id) {
+        return templates.find(function(t) { return t.id === id; }) || BUILTIN_TEMPLATES.find(function(t) { return t.id === id; });
+      }
+
+      // Guarda una plantilla; si ya existe una del usuario con ese nombre, pregunta si reemplazarla
+      function saveTemplate(src) {
+        var name = window.prompt("Nombre de la plantilla:", src.name || "Mi equipo");
+        if (name === null || !name.trim()) return;
+        name = name.trim();
+        var tpl = { id: "tpl-" + Date.now(), name: name, type: src.type, typeIcon: typeIcon(src.type), color: src.color,
+          ports: src.ports.map(function(p) { return { name: p.name, dir: p.dir, kind: p.kind }; }) };
+        var same = templates.find(function(t) { return t.name.toLowerCase() === name.toLowerCase(); });
+        if (same) {
+          if (!window.confirm("Ya existe la plantilla \"" + same.name + "\". Reemplazarla?")) return;
+          tpl.id = same.id;
+          persistTemplates(templates.map(function(t) { return t.id === same.id ? tpl : t; }));
+        } else {
+          persistTemplates(templates.concat([tpl]));
+        }
+        showToast("Plantilla guardada: " + name + " (" + tpl.ports.length + " puertos)");
+      }
+
+      function deleteTemplate(id) {
+        var t = templates.find(function(x) { return x.id === id; });
+        if (!t || !window.confirm("Borrar la plantilla \"" + t.name + "\"?")) return;
+        persistTemplates(templates.filter(function(x) { return x.id !== id; }));
+        setTplPick("");
+        showToast("Plantilla borrada: " + t.name);
+      }
+
+      // Rellena el formulario de "Nuevo dispositivo" con una plantilla
+      function applyTemplate(id) {
+        setTplPick(id);
+        if (!id) { setNewDevice({ name: "", type: "synth", color: "#00B894" }); setNewPorts([]); return; }
+        var t = findTemplate(id);
+        if (!t) return;
+        // Si la plantilla usa una categoria propia que ya no existe, se recrea con su icono
+        if (isCustomType(t.type) && !customTypes.some(function(c) { return c.name === t.type; })) {
+          setCustomTypes(function(cs) { return cs.concat([{ name: t.type, icon: t.typeIcon || "●" }]); });
+        }
+        setNewDevice({ name: t.name, type: t.type, color: t.color });
+        setNewPorts(t.ports.map(function(p) { return { name: p.name, dir: p.dir, kind: p.kind }; }));
+      }
+
       function addDevice() {
         if (!newDevice.name.trim()) return;
         histBreak();
@@ -1827,6 +1890,7 @@
         });
         setNewDevice({ name: "", type: "synth", color: "#00B894" });
         setNewPorts([]);
+        setTplPick("");
         setShowAdd(false);
         setAddPos(null);
       }
@@ -3193,6 +3257,29 @@
                 style={{ background: "rgba(var(--node),0.99)", border: "1px solid rgba(var(--fg),0.1)",
                   borderRadius: 12, padding: 22, width: 460, maxHeight: "80vh", overflow: "auto" }}>
                 <h3 style={{ color: "rgb(var(--fg))", margin: "0 0 14px", fontSize: 14, fontFamily: "inherit", fontWeight: 600 }}>Nuevo Dispositivo</h3>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10 }}>
+                  <span style={{ color: "rgba(var(--fg),0.5)", fontSize: 10, letterSpacing: 1 }}>PLANTILLA</span>
+                  <select value={tplPick} onChange={function(e) { applyTemplate(e.target.value); }}
+                    style={Object.assign({}, selectSt, { flex: 1, minWidth: 0 })}>
+                    <option value="">— Vacio —</option>
+                    {templates.length > 0 ? (
+                      <optgroup label="Mis plantillas">
+                        {templates.map(function(t) {
+                          return <option key={t.id} value={t.id}>{"★ " + t.name + " (" + t.ports.length + ")"}</option>;
+                        })}
+                      </optgroup>
+                    ) : null}
+                    <optgroup label="Incluidas">
+                      {BUILTIN_TEMPLATES.map(function(t) {
+                        return <option key={t.id} value={t.id}>{t.name + " (" + t.ports.length + ")"}</option>;
+                      })}
+                    </optgroup>
+                  </select>
+                  {tplPick && !tplPick.startsWith("builtin:") ? (
+                    <button title="Borrar esta plantilla" aria-label="Borrar plantilla" onClick={function() { deleteTemplate(tplPick); }}
+                      style={Object.assign(btnStyle("transparent", "rgba(var(--fg),0.1)", "var(--danger-ink)"), { padding: "5px 8px" })}>×</button>
+                  ) : null}
+                </div>
                 <input placeholder="Nombre" value={newDevice.name}
                   onChange={function(e) { setNewDevice(function(d) { return Object.assign({}, d, { name: e.target.value }); }); }}
                   style={Object.assign({}, inputSt, { width: "100%", boxSizing: "border-box", marginBottom: 10, fontSize: 13 })} />
@@ -3246,11 +3333,19 @@
                 {renderBulkRow(function() { setNewPorts(function(ps) { return ps.concat(makeBulkPorts(ps)); }); })}
                 <div style={{ marginBottom: 8 }} />
                 <div style={{ display: "flex", gap: 8 }}>
+                  <button title="Guardar nombre, categoria, color y puertos como plantilla"
+                    onClick={function() {
+                      if (newPorts.length === 0 && !newDevice.name.trim()) { showToast("Agrega un nombre o puertos primero"); return; }
+                      saveTemplate({ name: newDevice.name, type: newDevice.type, color: newDevice.color, ports: newPorts });
+                    }}
+                    style={{ padding: "8px 12px", background: "rgba(var(--note-rgb),calc(0.12 * var(--note-k)))",
+                      border: "1px solid rgba(var(--note-rgb),calc(0.4 * var(--note-k)))", borderRadius: 6, color: "var(--note-ink)",
+                      fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>★ Plantilla</button>
                   <button onClick={addDevice}
                     style={{ flex: 1, padding: "8px", background: "rgba(0,206,201,0.2)",
                       border: "1px solid var(--teal-ink)", borderRadius: 6, color: "var(--teal-ink)",
                       fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>Crear</button>
-                  <button onClick={function() { setShowAdd(false); }}
+                  <button onClick={function() { setShowAdd(false); setTplPick(""); }}
                     style={{ padding: "8px 14px", background: "rgba(var(--fg),0.06)",
                       border: "1px solid rgba(var(--fg),0.1)", borderRadius: 6,
                       color: "rgba(var(--fg),0.4)", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cancelar</button>
